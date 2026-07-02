@@ -1,4 +1,4 @@
-"""Doc Reader · Files panel (right slot).
+"""Google Drive · Files panel (right slot).
 
 Two blocks, so the user can always see WHICH Google account they're in and
 switch between accounts, each with its OWN pool of picked files:
@@ -97,12 +97,12 @@ def _file_items(files: list) -> list:
     return items
 
 
-@ext.panel("doc_files", slot="right", title="Doc Reader", icon="FileText")
+@ext.panel("doc_files", slot="right", title="Google Drive", icon="FileText")
 async def build_files_panel(ctx, **kwargs) -> ui.UINode:
     accounts = await _all_accounts(ctx)
     if not accounts:
         return ui.Stack([
-            ui.Header(text="Doc Reader", level=3),
+            ui.Header(text="Google Drive", level=3),
             ui.Empty(message="No Google account connected", icon="FileText"),
             ui.Button("Connect Google account", icon="Plus", variant="primary",
                       on_click=ui.Call("connect_google_docs")),
@@ -115,7 +115,7 @@ async def build_files_panel(ctx, **kwargs) -> ui.UINode:
     except Exception as exc:
         log.error(f"doc_files panel error: {exc}")
         return ui.Stack([
-            ui.Header(text="Doc Reader", level=3),
+            ui.Header(text="Google Drive", level=3),
             ui.Alert(message=f"Error loading panel: {exc}", type="error"),
         ], gap=2)
 
@@ -135,7 +135,7 @@ async def build_files_panel(ctx, **kwargs) -> ui.UINode:
         pick_btn = ui.Alert(message=f"Picker not ready: {exc}", type="warning")
 
     return ui.Stack([
-        ui.Header(text="Doc Reader", level=3),
+        ui.Header(text="Google Drive", level=3),
         ui.Text("Accounts", variant="caption"),
         ui.List(items=_account_items(rows, active_email)),
         ui.Button("Add Google account", icon="Plus", variant="outline",

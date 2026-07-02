@@ -1,4 +1,4 @@
-"""Doc Reader · Google Sheets read/write — same drive.file token, Sheets API."""
+"""Google Drive · Google Sheets read/write — same drive.file token, Sheets API."""
 from __future__ import annotations
 
 import logging

@@ -1,4 +1,4 @@
-"""Doc Reader · Connect, Picker, file list, and disconnect handlers."""
+"""Google Drive · Connect, Picker, file list, and disconnect handlers."""
 from __future__ import annotations
 
 import hashlib
@@ -58,7 +58,7 @@ async def impl_connect(ctx) -> tuple[str | None, bool, str | None]:
     return url, False, (
         "Open the link to authorise Google Drive access. You can connect several "
         "Google accounts — each keeps its own separate pool of picked files. After "
-        "authorising, call open_file_picker to choose which files Doc Reader may see "
+        "authorising, call open_file_picker to choose which files Google Drive may see "
         "(drive.file scope — only picked files are accessible, nothing else in Drive)."
     )
 
@@ -75,7 +75,7 @@ async def impl_open_file_picker(ctx, account: str = "") -> str:
     hmac_secret = await ctx.secrets.get("picker_hmac_secret")
     if not api_key or not hmac_secret:
         raise RuntimeError(
-            "Doc Reader's Picker API Key / HMAC secret are not configured yet "
+            "Google Drive's Picker API Key / HMAC secret are not configured yet "
             "(google_picker_api_key / picker_hmac_secret app secrets)."
         )
 
@@ -177,7 +177,7 @@ async def impl_register_picked_files(ctx, files: list) -> int:
 
 
 async def impl_disconnect_file(ctx, file_id: str) -> None:
-    """Removes the file from Doc Reader's own tracking only. This does NOT
+    """Removes the file from Google Drive's own tracking only. This does NOT
     revoke the underlying Google OAuth grant for that file — Drive has no
     per-file revoke API; the user would need to revoke the whole app's
     access from myaccount.google.com/permissions to do that."""
@@ -190,7 +190,7 @@ async def impl_disconnect_file(ctx, file_id: str) -> None:
 @chat.function(
     "connect_google_docs", action_type="read",
     data_model=OAuthConnectResult,
-    description="Start Google Drive OAuth for Doc Reader — returns an authorisation URL to open in the browser. If already connected, returns that status instead of a new URL.",
+    description="Start Google Drive OAuth — returns an authorisation URL to open in the browser. If already connected, returns that status instead of a new URL.",
 )
 async def fn_connect_google_docs(ctx, params: EmptyParams) -> ActionResult:
     try:
@@ -206,7 +206,7 @@ async def fn_connect_google_docs(ctx, params: EmptyParams) -> ActionResult:
 @chat.function(
     "open_file_picker", action_type="read",
     data_model=PickerLinkResult,
-    description="Get a link to the Google Picker where the user selects which Drive files Doc Reader may access, for a specific connected account (defaults to the active one). Requires connect_google_docs first. Picked files are registered automatically into that account's own pool — call list_connected_files afterwards to check.",
+    description="Get a link to the Google Picker where the user selects which Drive files Google Drive may access, for a specific connected account (defaults to the active one). Requires connect_google_docs first. Picked files are registered automatically into that account's own pool — call list_connected_files afterwards to check.",
 )
 async def fn_open_file_picker(ctx, params: PickFilesParams) -> ActionResult:
     try:
@@ -236,7 +236,7 @@ async def fn_register_picked_files(ctx, params: RegisterPickedFilesParams) -> Ac
 @chat.function(
     "list_connected_files", action_type="read",
     data_model=DocFileList,
-    description="List the Google Drive files the user has picked for Doc Reader to access (name, mime type, last modified). Does not return file content. Automatically picks up files just selected in the Picker, and drops files the user deleted or unshared on Google's side.",
+    description="List the Google Drive files the user has picked for Google Drive to access (name, mime type, last modified). Does not return file content. Automatically picks up files just selected in the Picker, and drops files the user deleted or unshared on Google's side.",
 )
 async def fn_list_connected_files(ctx, params: EmptyParams) -> ActionResult:
     try:
@@ -252,11 +252,11 @@ async def fn_list_connected_files(ctx, params: EmptyParams) -> ActionResult:
 @chat.function(
     "disconnect_file", action_type="write", event="file.disconnected",
     data_model=EditResult,
-    description="Remove a file from Doc Reader's connected-files list. The Google file itself is untouched — this only stops Doc Reader from tracking/reading it.",
+    description="Remove a file from Google Drive's connected-files list. The Google file itself is untouched — this only stops Google Drive from tracking/reading it.",
 )
 async def fn_disconnect_file(ctx, params: FileIdParams) -> ActionResult:
     try:
         await impl_disconnect_file(ctx, params.file_id)
-        return ActionResult.success(data=build_edit_result(params.file_id), summary="File removed from Doc Reader.", refresh_panels=["doc_files"])
+        return ActionResult.success(data=build_edit_result(params.file_id), summary="File removed from Google Drive.", refresh_panels=["doc_files"])
     except Exception as e:
         return ActionResult.error(str(e), retryable=False)

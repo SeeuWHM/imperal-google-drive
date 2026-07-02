@@ -1,4 +1,4 @@
-"""Doc Reader · Plain Drive files (not Google-native Docs/Sheets) —
+"""Google Drive · Plain Drive files (not Google-native Docs/Sheets) —
 read/write/search.
 
 Read always routes through doc-extractor-service (see

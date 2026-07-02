@@ -1,4 +1,4 @@
-"""Doc Reader · Google Docs read/write/search/stats.
+"""Google Drive · Google Docs read/write/search/stats.
 
 Edits go through the Docs API directly (batchUpdate) — every successful call
 IS the live document, immediately. No local draft, no save step, no session

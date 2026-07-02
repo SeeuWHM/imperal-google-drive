@@ -1,4 +1,4 @@
-"""Doc Reader · Account management — list / switch / disconnect connected
+"""Google Drive · Account management — list / switch / disconnect connected
 Google accounts. Each account keeps its own separate pool of picked files."""
 from __future__ import annotations
 
@@ -67,7 +67,7 @@ async def impl_disconnect_account(ctx, account: str) -> tuple[str, int]:
 
 @chat.function(
     "list_accounts", action_type="read", data_model=AccountsList,
-    description="List the Google accounts connected to Doc Reader — each account's email, which one is active, and how many files are in its own pool. Use when the user asks which Google accounts are connected or which one is in use.",
+    description="List the Google accounts connected to Google Drive — each account's email, which one is active, and how many files are in its own pool. Use when the user asks which Google accounts are connected or which one is in use.",
 )
 async def fn_list_accounts(ctx, params: EmptyParams) -> ActionResult:
     try:
@@ -100,7 +100,7 @@ async def fn_switch_account(ctx, params: AccountParam) -> ActionResult:
 @chat.function(
     "disconnect_account", action_type="destructive", event="account.disconnected",
     data_model=AccountDisconnected,
-    description="Disconnect a Google account from Doc Reader and forget its pool of picked files. Nothing is deleted in Google Drive itself; the OAuth grant can be fully revoked by the user at myaccount.google.com/permissions.",
+    description="Disconnect a Google account from Google Drive and forget its pool of picked files. Nothing is deleted in Google Drive itself; the OAuth grant can be fully revoked by the user at myaccount.google.com/permissions.",
 )
 async def fn_disconnect_account(ctx, params: AccountParam) -> ActionResult:
     try:

@@ -1,4 +1,4 @@
-"""Doc Reader · Skeleton — lightweight periodic status for the kernel's
+"""Google Drive · Skeleton — lightweight periodic status for the kernel's
 intent classifier. Per SDK contract: flat scalars + short lists (<=5),
 <=6 top-level keys, <=1-2KB total. No file content, ever."""
 from __future__ import annotations
@@ -7,7 +7,7 @@ from app import ext
 from providers.helpers import ACCOUNTS_COLLECTION, _all_picked_files
 
 
-@ext.skeleton("doc_reader_files", ttl=300, description="Doc Reader status — connected Google accounts, total picked files, names, sizes, extensions")
+@ext.skeleton("doc_reader_files", ttl=300, description="Google Drive status — connected Google accounts, total picked files, names, sizes, extensions")
 async def skeleton_doc_reader_files(ctx) -> dict:
     # Keep this FAST: local store reads only, no network. (Do NOT call
     # _all_accounts here — it hydrates account emails via a live Drive call,

@@ -1,4 +1,4 @@
-"""Doc Reader · Google Slides — read-only, via Drive's export-to-text.
+"""Google Drive · Google Slides — read-only, via Drive's export-to-text.
 
 Slides' native API (presentations.get) returns a deeply nested structure
 (slide -> pageElement -> shape -> text -> textRun) — walking that ourselves

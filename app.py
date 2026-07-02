@@ -1,4 +1,4 @@
-"""Doc Reader — Extension instance + lifecycle (SDK 5.9.x, drive.file scope only).
+"""Google Drive — Extension instance + lifecycle (SDK 5.9.x, drive.file scope only).
 
 Reads and edits Google Docs / Sheets / plain text files in Google Drive —
 live, nothing stored on Imperal except file_id pointers. See
@@ -21,7 +21,7 @@ log = logging.getLogger("doc_reader")
 ext = Extension(
     "doc-reader",
     version="0.2.0",
-    display_name="Doc Reader",
+    display_name="Google Drive",
     description=(
         "Read and edit Google Docs, Google Sheets, and plain text files, and read "
         "Google Slides, stored in the user's Google Drive. Nothing is stored on "
@@ -36,7 +36,7 @@ chat = ChatExtension(
     ext=ext,
     tool_name="tool_doc_reader_chat",
     description=(
-        "Doc Reader — read and edit Google Docs/Sheets/plain-text files from the "
+        "Google Drive — read and edit Google Docs/Sheets/plain-text files from the "
         "user's Google Drive. Connect once via connect_google_docs, pick files via "
         "the Google Picker, then read/search/edit them by file_id."
     ),
@@ -67,8 +67,8 @@ ext.oauth(
 # extensions/doc-reader.md open questions.
 
 _APP_SECRETS = [
-    ("google_client_id", "Shared Google OAuth Client ID for Doc Reader (developer-owned; one OAuth app for all users)", "IMPERAL_APPSECRET_DOCREADER_GOOGLE_CLIENT_ID"),
-    ("google_client_secret", "Shared Google OAuth Client Secret for Doc Reader (developer-owned)", "IMPERAL_APPSECRET_DOCREADER_GOOGLE_CLIENT_SECRET"),
+    ("google_client_id", "Shared Google OAuth Client ID for Google Drive (developer-owned; one OAuth app for all users)", "IMPERAL_APPSECRET_DOCREADER_GOOGLE_CLIENT_ID"),
+    ("google_client_secret", "Shared Google OAuth Client Secret for Google Drive (developer-owned)", "IMPERAL_APPSECRET_DOCREADER_GOOGLE_CLIENT_SECRET"),
     # Not a confidential secret by Google's own design (used client-side, restricted
     # by HTTP referrer in Google Cloud Console) — stored as a secret anyway for
     # consistent management, not because it needs to be kept hidden.

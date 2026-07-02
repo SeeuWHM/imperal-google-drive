@@ -1,4 +1,4 @@
-"""Doc Reader — SDL entity classes + builders (imperal-sdk 5.9.x).
+"""Google Drive — SDL entity classes + builders (imperal-sdk 5.9.x).
 
 All @chat.function data_model= types live here, alongside the builder
 functions that turn plain impl_* return values into SDL entities.

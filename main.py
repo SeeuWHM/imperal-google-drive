@@ -1,4 +1,4 @@
-"""Doc Reader v0.1.0 — Google Docs/Sheets/Drive text files for Imperal Cloud (SDK 5.9.x / SDL)."""
+"""Google Drive v0.1.0 — Google Docs/Sheets/Drive text files for Imperal Cloud (SDK 5.9.x / SDL)."""
 from __future__ import annotations
 
 import os

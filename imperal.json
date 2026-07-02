@@ -3,7 +3,7 @@
   "sdk_version": "5.9.2",
   "app_id": "doc-reader",
   "version": "0.2.0",
-  "name": "Doc Reader",
+  "name": "Google Drive",
   "description": "Read and edit Google Docs, Google Sheets, and plain text files, and read Google Slides, stored in the user's Google Drive. Nothing is stored on Imperal — content is fetched live and written straight back to the source.",
   "icon": "doc-reader.svg",
   "actions_explicit": true,
@@ -16,13 +16,13 @@
   "tools": [
     {
       "name": "skeleton_refresh_doc_reader_files",
-      "description": "Doc Reader status — connected Google accounts, total picked files, names, sizes, extensions",
+      "description": "Google Drive status — connected Google accounts, total picked files, names, sizes, extensions",
       "scopes": [],
       "parameters": {}
     },
     {
       "name": "connect_google_docs",
-      "description": "Start Google Drive OAuth for Doc Reader — returns an authorisation URL to open in the browser. If already connected, returns that status instead of a new URL.",
+      "description": "Start Google Drive OAuth — returns an authorisation URL to open in the browser. If already connected, returns that status instead of a new URL.",
       "action_type": "read",
       "chain_callable": true,
       "effects": [],
@@ -148,7 +148,7 @@
     },
     {
       "name": "open_file_picker",
-      "description": "Get a link to the Google Picker where the user selects which Drive files Doc Reader may access, for a specific connected account (defaults to the active one). Requires connect_google_docs first. Picked files are registered automatically into that account's own pool — call list_connected_files afterwards to check.",
+      "description": "Get a link to the Google Picker where the user selects which Drive files Google Drive may access, for a specific connected account (defaults to the active one). Requires connect_google_docs first. Picked files are registered automatically into that account's own pool — call list_connected_files afterwards to check.",
       "action_type": "read",
       "chain_callable": true,
       "effects": [],
@@ -427,7 +427,7 @@
     },
     {
       "name": "list_connected_files",
-      "description": "List the Google Drive files the user has picked for Doc Reader to access (name, mime type, last modified). Does not return file content. Automatically picks up files just selected in the Picker, and drops files the user deleted or unshared on Google's side.",
+      "description": "List the Google Drive files the user has picked for Google Drive to access (name, mime type, last modified). Does not return file content. Automatically picks up files just selected in the Picker, and drops files the user deleted or unshared on Google's side.",
       "action_type": "read",
       "chain_callable": true,
       "effects": [],
@@ -719,7 +719,7 @@
     },
     {
       "name": "disconnect_file",
-      "description": "Remove a file from Doc Reader's connected-files list. The Google file itself is untouched — this only stops Doc Reader from tracking/reading it.",
+      "description": "Remove a file from Google Drive's connected-files list. The Google file itself is untouched — this only stops Google Drive from tracking/reading it.",
       "action_type": "write",
       "chain_callable": true,
       "effects": [],
@@ -849,7 +849,7 @@
     },
     {
       "name": "list_accounts",
-      "description": "List the Google accounts connected to Doc Reader — each account's email, which one is active, and how many files are in its own pool. Use when the user asks which Google accounts are connected or which one is in use.",
+      "description": "List the Google accounts connected to Google Drive — each account's email, which one is active, and how many files are in its own pool. Use when the user asks which Google accounts are connected or which one is in use.",
       "action_type": "read",
       "chain_callable": true,
       "effects": [],
@@ -1145,7 +1145,7 @@
     },
     {
       "name": "disconnect_account",
-      "description": "Disconnect a Google account from Doc Reader and forget its pool of picked files. Nothing is deleted in Google Drive itself; the OAuth grant can be fully revoked by the user at myaccount.google.com/permissions.",
+      "description": "Disconnect a Google account from Google Drive and forget its pool of picked files. Nothing is deleted in Google Drive itself; the OAuth grant can be fully revoked by the user at myaccount.google.com/permissions.",
       "action_type": "destructive",
       "chain_callable": true,
       "effects": [],
@@ -3842,7 +3842,7 @@
   "secrets": [
     {
       "name": "google_client_id",
-      "description": "Shared Google OAuth Client ID for Doc Reader (developer-owned; one OAuth app for all users)",
+      "description": "Shared Google OAuth Client ID for Google Drive (developer-owned; one OAuth app for all users)",
       "required": true,
       "write_mode": "user",
       "max_bytes": 4096,
@@ -3851,7 +3851,7 @@
     },
     {
       "name": "google_client_secret",
-      "description": "Shared Google OAuth Client Secret for Doc Reader (developer-owned)",
+      "description": "Shared Google OAuth Client Secret for Google Drive (developer-owned)",
       "required": true,
       "write_mode": "user",
       "max_bytes": 4096,
@@ -3881,7 +3881,7 @@
     {
       "panel_id": "doc_files",
       "slot": "right",
-      "title": "Doc Reader",
+      "title": "Google Drive",
       "tree": {}
     }
   ]
