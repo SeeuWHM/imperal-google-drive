@@ -18,7 +18,7 @@ from imperal_sdk import ui
 
 from app import ext
 from handlers_accounts import impl_list_accounts
-from handlers_connect import impl_list_connected_files
+from handlers_connect import impl_list_connected_files, impl_open_file_picker
 from providers.helpers import _account_email, _active_account, _all_accounts
 
 log = logging.getLogger("doc_reader")
@@ -77,6 +77,31 @@ def _file_items(files: list) -> list:
     return items
 
 
+async def _picking_view(ctx, account: str) -> ui.UINode:
+    """EXPERIMENTAL — render the Google Picker INSIDE the panel via ui.Html
+    (sandboxed iframe of our own picker page). Whether the platform CSP lets a
+    sandboxed iframe load api.webhostmost.com is verified live; if it doesn't
+    render, the user goes Back and uses 'Open picker in new tab' (reliable)."""
+    try:
+        url = await impl_open_file_picker(ctx, account=account)
+    except Exception as e:
+        return ui.Stack([
+            ui.Header(text="Pick files", level=3),
+            ui.Alert(message=f"Picker not available: {e}", type="error"),
+            ui.Button("Back", variant="ghost", on_click=ui.Call("__panel__doc_files")),
+        ], gap=2)
+    iframe = (
+        f'<iframe src="{url}" title="Google Picker" '
+        'style="width:100%;height:560px;border:0;border-radius:8px"></iframe>'
+    )
+    return ui.Stack([
+        ui.Header(text="Pick files from Drive", level=3),
+        ui.Html(iframe, sandbox=True, max_height=600),
+        ui.Text("Pick files above. Not loading here? Go Back and use ‘Open picker in new tab’.", variant="caption"),
+        ui.Button("Done / Back", icon="Check", variant="primary", on_click=ui.Call("__panel__doc_files")),
+    ], gap=2)
+
+
 @ext.panel("doc_files", slot="right", title="Doc Reader", icon="FileText")
 async def build_files_panel(ctx, **kwargs) -> ui.UINode:
     accounts = await _all_accounts(ctx)
@@ -87,6 +112,9 @@ async def build_files_panel(ctx, **kwargs) -> ui.UINode:
             ui.Button("Connect Google account", icon="Plus", variant="primary",
                       on_click=ui.Call("connect_google_docs")),
         ], gap=2)
+
+    if kwargs.get("picking"):
+        return await _picking_view(ctx, kwargs.get("account", ""))
 
     try:
         rows = await impl_list_accounts(ctx)              # [(acc, file_count)]
@@ -112,7 +140,9 @@ async def build_files_panel(ctx, **kwargs) -> ui.UINode:
                   on_click=ui.Call("connect_google_docs")),
         ui.Divider(),
         ui.Text(f"Files — {active_email}", variant="caption"),
-        ui.Button("Pick files from Drive", icon="Plus", variant="primary",
+        ui.Button("Pick files (in panel)", icon="Plus", variant="primary",
+                  on_click=ui.Call("__panel__doc_files", picking="1", account=active_email)),
+        ui.Button("Open picker in new tab", icon="ExternalLink", variant="ghost",
                   on_click=ui.Call("open_file_picker", account=active_email)),
         files_block,
     ], gap=2, className="pb-4")
