@@ -55,26 +55,64 @@ async def _active_account(ctx) -> dict:
     return active
 
 
-async def _all_picked_files(ctx) -> list[dict]:
+def _account_email(acc: dict) -> str:
+    """Stable per-account key used to scope picked files. Prefer the real
+    Google address the platform stored on the OAuth account record; fall back
+    to the store doc id so scoping still works if `email` is ever absent."""
+    return acc.get("email") or acc.get("doc_id") or ""
+
+
+async def _account_by_email(ctx, account: str) -> dict:
+    """Resolve a connected account by its email (or store doc id)."""
+    accounts = await _all_accounts(ctx)
+    match = next((a for a in accounts if a.get("email") == account or a.get("doc_id") == account), None)
+    if not match:
+        available = [a.get("email") or a.get("doc_id") for a in accounts]
+        raise RuntimeError(f"Account {account!r} not found. Connected: {available}")
+    return match
+
+
+async def _all_picked_files(ctx, account_email: str | None = None) -> list[dict]:
+    """Picked-file records. With ``account_email`` — only that account's pool
+    (each connected Google account keeps a separate pool of picked files);
+    without it — every account's files (used for totals)."""
     docs = await ctx.store.query(FILES_COLLECTION)
     out = []
     for d in docs:
         item = dict(d.data)
         item["doc_id"] = d.id
-        out.append(item)
+        if account_email is None or item.get("account_email") == account_email:
+            out.append(item)
     return out
 
 
+async def _active_picked_files(ctx) -> list[dict]:
+    acc = await _active_account(ctx)
+    return await _all_picked_files(ctx, _account_email(acc))
+
+
 async def _find_picked_file(ctx, file_id: str) -> dict:
-    files = await _all_picked_files(ctx)
+    """Look up a picked file in the ACTIVE account's pool. A drive.file grant
+    is scoped to the account that picked the file, so reads/writes must use
+    that account's token — the active-account pool guarantees that (handlers
+    read with ``_active_account``)."""
+    acc = await _active_account(ctx)
+    active_email = _account_email(acc)
+    files = await _all_picked_files(ctx, active_email)
     match = next((f for f in files if f.get("file_id") == file_id), None)
-    if not match:
+    if match:
+        return match
+    # Picked, but under a different account? Point the caller at the fix.
+    other = next((f for f in await _all_picked_files(ctx) if f.get("file_id") == file_id), None)
+    if other:
         raise RuntimeError(
-            f"File {file_id!r} was not picked through connect_google_docs' Google Picker "
-            "(drive.file scope only grants access to explicitly picked/shared files). "
-            "Ask the user to pick it first."
+            f"File {file_id!r} belongs to account {other.get('account_email')!r}, but the active "
+            f"account is {active_email!r}. Switch to that account (switch_account) first."
         )
-    return match
+    raise RuntimeError(
+        f"File {file_id!r} was not picked through the Google Picker for the active account "
+        "(drive.file only grants access to explicitly picked files). Ask the user to pick it first."
+    )
 
 
 async def reconcile_picked_files(ctx, acc: dict) -> list[dict]:
@@ -90,7 +128,7 @@ async def reconcile_picked_files(ctx, acc: dict) -> list[dict]:
     """
     from .google_api import drive_list_files  # local import: avoids a circular import with google_api's helpers usage
 
-    local_files = await _all_picked_files(ctx)
+    local_files = await _all_picked_files(ctx, _account_email(acc))
     if not local_files:
         return local_files
 

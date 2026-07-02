@@ -69,3 +69,11 @@ class PickedFileInput(BaseModel):
 
 class RegisterPickedFilesParams(BaseModel):
     files: list[PickedFileInput] = Field(description="Files copied from the Google Picker page's output box (JSON with a 'files' array). Paste that exact array here.")
+
+
+class AccountParam(BaseModel):
+    account: str = Field(description="Which connected Google account — its email address (from list_accounts).")
+
+
+class PickFilesParams(BaseModel):
+    account: str = Field(default="", description="Which connected Google account to pick files for (email). Omit to use the active account.")

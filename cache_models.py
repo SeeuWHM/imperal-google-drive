@@ -8,6 +8,7 @@ from app import ext
 
 class PendingPickerSession(BaseModel):
     token: str
+    account_email: str = ""
 
 
 ext.cache_model("pending_picker_session")(PendingPickerSession)

@@ -5,8 +5,9 @@ functions that turn plain impl_* return values into SDL entities.
 """
 from __future__ import annotations
 
+from pydantic import Field
+
 from imperal_sdk import sdl
-from imperal_sdk.sdl import field as sdl_field
 
 # ── Entities ─────────────────────────────────────────────────────────────────
 
@@ -70,7 +71,7 @@ class SpreadsheetRange(sdl.Entity):
     file_id: str | None = None
     cell_range: str | None = None
     row_count: int = 0
-    values: list[list] = sdl_field(default_factory=list, role="content.body")
+    values: list[list] = Field(default_factory=list)
 
 
 class SpreadsheetInfo(sdl.Entity):
@@ -78,7 +79,7 @@ class SpreadsheetInfo(sdl.Entity):
     name, since there is no way to guess a sheet's title otherwise."""
     kind: str = "spreadsheet_info"
     file_id: str | None = None
-    sheets: list[dict] = sdl_field(default_factory=list, role="content.body")
+    sheets: list[dict] = Field(default_factory=list)
 
 
 class AggregateResult(sdl.Entity):
@@ -88,6 +89,30 @@ class AggregateResult(sdl.Entity):
     operation: str | None = None
     result: float = 0.0
     cell_count: int = 0
+
+
+class AccountItem(sdl.Entity):
+    """A connected Google account and the size of its own picked-files pool."""
+    kind: str = "doc_account"
+    email: str | None = None
+    provider: str = "Google"
+    is_active: bool = False
+    file_count: int = 0
+
+
+class AccountsList(sdl.EntityList[AccountItem]):
+    connected: bool = False
+
+
+class AccountSwitched(sdl.Entity):
+    kind: str = "account_switched"
+    active_account: str | None = None
+
+
+class AccountDisconnected(sdl.Entity):
+    kind: str = "account_disconnected"
+    email: str | None = None
+    remaining: int = 0
 
 
 # ── Builders — plain dict/dataclass -> SDL entity ────────────────────────────
@@ -161,4 +186,30 @@ def build_aggregate_result(file_id: str, cell_range: str, operation: str, result
     return AggregateResult(
         id=f"{file_id}:{cell_range}:{operation}", title=f"{operation}({cell_range})",
         file_id=file_id, cell_range=cell_range, operation=operation, result=result, cell_count=cell_count,
+    )
+
+
+def build_account_item(acc: dict, file_count: int) -> AccountItem:
+    email = acc.get("email") or acc.get("doc_id") or "?"
+    return AccountItem(
+        id=email, title=email,
+        email=acc.get("email"), provider="Google",
+        is_active=bool(acc.get("is_active", False)), file_count=file_count,
+    )
+
+
+def build_accounts_list(accounts_with_counts: list[tuple[dict, int]]) -> AccountsList:
+    items = [build_account_item(a, c) for a, c in accounts_with_counts]
+    return AccountsList(items=items, total=len(items), connected=bool(items))
+
+
+def build_account_switched(active_account: str) -> AccountSwitched:
+    return AccountSwitched(
+        id=active_account or "none", title=f"Switched to {active_account}", active_account=active_account,
+    )
+
+
+def build_account_disconnected(email: str, remaining: int) -> AccountDisconnected:
+    return AccountDisconnected(
+        id=email or "none", title=f"Disconnected {email}", email=email, remaining=remaining,
     )

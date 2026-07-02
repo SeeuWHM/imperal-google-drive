@@ -1,15 +1,14 @@
-"""Doc Reader · Files panel (right slot) — list, search, remove.
+"""Doc Reader · Files panel (right slot).
 
-Scope, deliberately: a list of connected files + search + a remove action.
-No preview, no in-panel editing, no real folder hierarchy — those weren't
-asked for. `grouped_by` on ui.List exists but its exact contract (which
-ListItem field it groups by) isn't confirmed from the SDK source alone —
-left unset rather than guessing; the file extension is still visible via
-the badge/subtitle for now.
+Two blocks, so the user can always see WHICH Google account they're in and
+switch between accounts, each with its OWN pool of picked files:
+  1. Accounts — connected Google accounts, ✓ active one, click to switch,
+     per-account file count, "Add Google account" (login) button.
+  2. Files — the ACTIVE account's picked files + a "Pick files" button that
+     opens the Google Picker for that account (on request, like login).
 
-Rendering this panel also claims any pending Picker session (via
-impl_list_connected_files) — so files just picked in the popup tab show up
-here on the next render, no manual step needed in the common case.
+Rendering also claims any pending Picker session (via impl_list_connected_files),
+so files just picked in the popup show up on the next render, no manual step.
 """
 from __future__ import annotations
 
@@ -18,8 +17,9 @@ import logging
 from imperal_sdk import ui
 
 from app import ext
-from handlers_connect import impl_list_connected_files, impl_open_file_picker
-from providers.helpers import _all_accounts
+from handlers_accounts import impl_list_accounts
+from handlers_connect import impl_list_connected_files
+from providers.helpers import _account_email, _active_account, _all_accounts
 
 log = logging.getLogger("doc_reader")
 
@@ -42,33 +42,26 @@ def _human_size(size_bytes) -> str:
     return f"{n:.1f} TB"
 
 
-@ext.panel("doc_files", slot="right", title="Doc Reader", icon="FileText")
-async def build_files_panel(ctx, **kwargs) -> ui.UINode:
-    accounts = await _all_accounts(ctx)
-    if not accounts:
-        return ui.Stack([
-            ui.Header(text="Doc Reader", level=3),
-            ui.Empty(message="Not connected to Google Drive", icon="FileText"),
-            ui.Button("Connect Google Docs", icon="Plus", variant="primary",
-                      on_click=ui.Call("connect_google_docs")),
-        ], gap=2)
+def _account_items(rows: list, active_email: str) -> list:
+    items = []
+    for acc, count in rows:
+        email = acc.get("email") or acc.get("doc_id") or "?"
+        is_active = email == active_email
+        subtitle = f"{count} file(s)"
+        if is_active:
+            subtitle = f"✓ Active — {subtitle}"
+        items.append(ui.ListItem(
+            id=email, title=email, subtitle=subtitle,
+            avatar=ui.Avatar(fallback=email[0].upper(), size="sm"),
+            badge=ui.Badge("✓", color="green") if is_active else None,
+            on_click=ui.Call("switch_account", account=email),
+            actions=[{"label": "Disconnect", "icon": "Trash2",
+                      "on_click": ui.Call("disconnect_account", account=email)}],
+        ))
+    return items
 
-    files = await impl_list_connected_files(ctx)
 
-    if not files:
-        try:
-            picker_url = await impl_open_file_picker(ctx)
-            picker_button = ui.Button("Pick files from Google Drive", icon="Plus", variant="primary",
-                                       on_click=ui.Open(picker_url))
-        except Exception as e:
-            picker_button = ui.Alert(message=f"Picker not available yet: {e}", type="warning")
-        return ui.Stack([
-            ui.Header(text="Doc Reader", level=3),
-            ui.Empty(message="No files picked yet", icon="FileText"),
-            picker_button,
-            ui.Text("After picking, reopen this panel — files appear automatically.", variant="caption"),
-        ], gap=2)
-
+def _file_items(files: list) -> list:
     items = []
     for f in files:
         name = f.get("name", "?")
@@ -81,9 +74,45 @@ async def build_files_panel(ctx, **kwargs) -> ui.UINode:
             actions=[{"label": "Remove", "icon": "Trash2",
                       "on_click": ui.Call("disconnect_file", file_id=f["file_id"])}],
         ))
+    return items
+
+
+@ext.panel("doc_files", slot="right", title="Doc Reader", icon="FileText")
+async def build_files_panel(ctx, **kwargs) -> ui.UINode:
+    accounts = await _all_accounts(ctx)
+    if not accounts:
+        return ui.Stack([
+            ui.Header(text="Doc Reader", level=3),
+            ui.Empty(message="No Google account connected", icon="FileText"),
+            ui.Button("Connect Google account", icon="Plus", variant="primary",
+                      on_click=ui.Call("connect_google_docs")),
+        ], gap=2)
+
+    try:
+        rows = await impl_list_accounts(ctx)              # [(acc, file_count)]
+        active_email = _account_email(await _active_account(ctx))
+        files = await impl_list_connected_files(ctx)      # active account's pool (also claims picker)
+    except Exception as exc:
+        log.error(f"doc_files panel error: {exc}")
+        return ui.Stack([
+            ui.Header(text="Doc Reader", level=3),
+            ui.Alert(message=f"Error loading panel: {exc}", type="error"),
+        ], gap=2)
+
+    files_block = (
+        ui.List(items=_file_items(files), searchable=True) if files
+        else ui.Empty(message="No files picked for this account yet", icon="FileText")
+    )
 
     return ui.Stack([
         ui.Header(text="Doc Reader", level=3),
-        ui.Text(f"{len(files)} file(s)", variant="caption"),
-        ui.List(items=items, searchable=True),
+        ui.Text("Accounts", variant="caption"),
+        ui.List(items=_account_items(rows, active_email)),
+        ui.Button("Add Google account", icon="Plus", variant="outline",
+                  on_click=ui.Call("connect_google_docs")),
+        ui.Divider(),
+        ui.Text(f"Files — {active_email}", variant="caption"),
+        ui.Button("Pick files from Drive", icon="Plus", variant="primary",
+                  on_click=ui.Call("open_file_picker", account=active_email)),
+        files_block,
     ], gap=2, className="pb-4")

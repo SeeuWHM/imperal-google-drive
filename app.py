@@ -20,7 +20,7 @@ log = logging.getLogger("doc_reader")
 
 ext = Extension(
     "doc-reader",
-    version="0.1.0",
+    version="0.2.0",
     display_name="Doc Reader",
     description=(
         "Read and edit Google Docs, Google Sheets, and plain text files, and read "
@@ -48,8 +48,14 @@ chat = ChatExtension(
 # (spreadsheets.values.update), and plain Drive files (files.update) — see
 # extensions/doc-reader.md for the scope research.
 
+# Provider key MUST be "google" — SDK 5.9.2 ctx.oauth_authorize_url() only knows
+# google/microsoft/yahoo (hardcoded authorize endpoints) and reads the app secret
+# {provider}_client_id, i.e. "google_client_id". A custom key like "google-docs"
+# raises ValueError at runtime and looks up a non-existent secret. The callback
+# route is /v1/ext/doc-reader/oauth/google/callback (register THIS as the redirect
+# URI in the Google console). Same pattern as mail-client.
 ext.oauth(
-    "google-docs",
+    "google",
     collection="docreader_accounts",
     scopes=["https://www.googleapis.com/auth/drive.file"],
 )

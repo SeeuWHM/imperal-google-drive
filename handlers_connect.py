@@ -16,13 +16,16 @@ from providers.helpers import (
     PICKER_CLAIM_URL,
     PICKER_PAGE_URL,
     PICKER_STAGE_TOKEN_URL,
+    _account_by_email,
+    _account_email,
     _active_account,
     _all_accounts,
+    _all_picked_files,
     _remove_picked_file,
     reconcile_picked_files,
 )
 from providers.token_refresh import _refresh_token_if_needed
-from schemas import EmptyParams, FileIdParams, RegisterPickedFilesParams
+from schemas import EmptyParams, FileIdParams, PickFilesParams, RegisterPickedFilesParams
 from schemas_sdl import (
     DocFileList,
     EditResult,
@@ -48,25 +51,26 @@ def _sign_session(secret: str, session: str) -> str:
 
 
 async def impl_connect(ctx) -> tuple[str | None, bool, str | None]:
-    accounts = await _all_accounts(ctx)
-    if accounts:
-        return None, True, None
-    url = await ctx.oauth_authorize_url("google-docs")
+    # Always return an authorize URL — connecting is also how the user ADDS
+    # another Google account (each account keeps its own separate pool of
+    # picked files). The platform's callback upserts the account by identity.
+    url = await ctx.oauth_authorize_url("google")
     return url, False, (
-        "Open the link to authorise Google Drive access, then call open_file_picker "
-        "to choose which files Doc Reader may see (drive.file scope — only picked files "
-        "are accessible, nothing else in the user's Drive)."
+        "Open the link to authorise Google Drive access. You can connect several "
+        "Google accounts — each keeps its own separate pool of picked files. After "
+        "authorising, call open_file_picker to choose which files Doc Reader may see "
+        "(drive.file scope — only picked files are accessible, nothing else in Drive)."
     )
 
 
-async def impl_open_file_picker(ctx) -> str:
-    """Builds the Picker page URL. The page does NOT run its own Google
-    login — confirmed empirically that a drive.file grant obtained via a
-    separate client-side OAuth is invisible to this extension's server-side
-    refresh-token grant later (different grant lineage, even same
-    client_id/user/scope). Instead: refresh OUR stored token, stage it
-    (HMAC-signed, 30s TTL) for the page to fetch once, so picked files end
-    up under the SAME lineage this extension already reads with."""
+async def impl_open_file_picker(ctx, account: str = "") -> str:
+    """Builds the Picker page URL for a SPECIFIC account (the one requested,
+    else the active one) — its picked files land in that account's pool. The
+    page does NOT run its own Google login: we refresh OUR stored token for
+    that account and stage it (HMAC-signed, short TTL) for the page to fetch
+    once, so picked files end up under the same grant this extension reads
+    with (setAppId on the PickerBuilder binds the drive.file grant to this
+    project — without it picked files 404)."""
     api_key = await ctx.secrets.get("google_picker_api_key")
     hmac_secret = await ctx.secrets.get("picker_hmac_secret")
     if not api_key or not hmac_secret:
@@ -75,7 +79,8 @@ async def impl_open_file_picker(ctx) -> str:
             "(google_picker_api_key / picker_hmac_secret app secrets)."
         )
 
-    acc = await _active_account(ctx)  # raises clearly if connect_google_docs hasn't run yet
+    # raises clearly if the account isn't connected / connect_google_docs hasn't run
+    acc = await _account_by_email(ctx, account) if account else await _active_account(ctx)
     acc = await _refresh_token_if_needed(ctx, acc)
 
     session = _secrets.token_urlsafe(24)
@@ -88,7 +93,11 @@ async def impl_open_file_picker(ctx) -> str:
     )
     resp.raise_for_status()
 
-    await ctx.cache.set(_CACHE_KEY, PendingPickerSession(token=session), ttl_seconds=_SESSION_TTL_SECONDS)
+    await ctx.cache.set(
+        _CACHE_KEY,
+        PendingPickerSession(token=session, account_email=_account_email(acc)),
+        ttl_seconds=_SESSION_TTL_SECONDS,
+    )
     query = urlencode({"api_key": api_key, "session": session, "sig": sig})
     return f"{PICKER_PAGE_URL}?{query}"
 
@@ -117,7 +126,8 @@ async def _claim_pending_picker_session(ctx) -> int:
     if not files:
         return 0  # not picked yet — leave the session cached, TTL handles cleanup
 
-    existing = {f.get("file_id") for f in await _all_picked_files_raw(ctx)}
+    account_email = pending.account_email or _account_email(await _active_account(ctx))
+    existing = {f.get("file_id") for f in await _all_picked_files(ctx, account_email)}
     added = 0
     for f in files:
         if f.get("file_id") in existing:
@@ -125,6 +135,7 @@ async def _claim_pending_picker_session(ctx) -> int:
         await ctx.store.create(FILES_COLLECTION, {
             "file_id": f.get("file_id"), "name": f.get("name"),
             "mime_type": f.get("mime_type"), "size_bytes": f.get("size_bytes", 0),
+            "account_email": account_email,
         })
         added += 1
     try:
@@ -132,11 +143,6 @@ async def _claim_pending_picker_session(ctx) -> int:
     except Exception:
         pass
     return added
-
-
-async def _all_picked_files_raw(ctx) -> list[dict]:
-    from providers.helpers import _all_picked_files
-    return await _all_picked_files(ctx)
 
 
 async def impl_list_connected_files(ctx) -> list[dict]:
@@ -155,13 +161,16 @@ async def impl_list_connected_files(ctx) -> list[dict]:
 async def impl_register_picked_files(ctx, files: list) -> int:
     """Manual fallback path — used only if the picker page's automatic
     staging call failed and it fell back to showing copy-paste JSON."""
-    existing = {f.get("file_id") for f in await reconcile_picked_files(ctx, await _active_account(ctx))}
+    acc = await _active_account(ctx)
+    account_email = _account_email(acc)
+    existing = {f.get("file_id") for f in await reconcile_picked_files(ctx, acc)}
     added = 0
     for f in files:
         if f.file_id in existing:
             continue
         await ctx.store.create(FILES_COLLECTION, {
-            "file_id": f.file_id, "name": f.name, "mime_type": f.mime_type, "size_bytes": f.size_bytes,
+            "file_id": f.file_id, "name": f.name, "mime_type": f.mime_type,
+            "size_bytes": f.size_bytes, "account_email": account_email,
         })
         added += 1
     return added
@@ -197,11 +206,11 @@ async def fn_connect_google_docs(ctx, params: EmptyParams) -> ActionResult:
 @chat.function(
     "open_file_picker", action_type="read",
     data_model=PickerLinkResult,
-    description="Get a link to the Google Picker page where the user selects which Drive files Doc Reader may access. Requires connect_google_docs to have been completed first. Opens in a new browser tab. Picked files are usually registered automatically — just call list_connected_files afterwards to check.",
+    description="Get a link to the Google Picker where the user selects which Drive files Doc Reader may access, for a specific connected account (defaults to the active one). Requires connect_google_docs first. Picked files are registered automatically into that account's own pool — call list_connected_files afterwards to check.",
 )
-async def fn_open_file_picker(ctx, params: EmptyParams) -> ActionResult:
+async def fn_open_file_picker(ctx, params: PickFilesParams) -> ActionResult:
     try:
-        url = await impl_open_file_picker(ctx)
+        url = await impl_open_file_picker(ctx, account=params.account)
         return ActionResult.success(data=build_picker_link(url), summary="Picker link ready — open it and pick files, then check list_connected_files.")
     except Exception as e:
         return ActionResult.error(str(e), retryable=False)
