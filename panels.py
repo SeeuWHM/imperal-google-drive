@@ -24,8 +24,28 @@ from providers.helpers import _account_email, _active_account, _all_accounts
 log = logging.getLogger("doc_reader")
 
 
-def _extension_of(name: str) -> str:
-    return name.rsplit(".", 1)[-1].upper() if "." in name else "FILE"
+_MIME_LABELS = {
+    "application/vnd.google-apps.document": "DOC",
+    "application/vnd.google-apps.spreadsheet": "SHEET",
+    "application/vnd.google-apps.presentation": "SLIDES",
+    "application/pdf": "PDF",
+    "text/plain": "TXT",
+    "text/csv": "CSV",
+    "text/html": "HTML",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "DOCX",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "XLSX",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation": "PPTX",
+}
+
+
+def _type_label(name: str, mime_type: str) -> str:
+    """Google-native files (Docs/Sheets/Slides) have no extension in their
+    name, so fall back from mime type. Real files keep their extension."""
+    if mime_type in _MIME_LABELS:
+        return _MIME_LABELS[mime_type]
+    if "." in name:
+        return name.rsplit(".", 1)[-1].upper()
+    return "FILE"
 
 
 def _human_size(size_bytes) -> str:
@@ -65,7 +85,7 @@ def _file_items(files: list) -> list:
     items = []
     for f in files:
         name = f.get("name", "?")
-        ext_label = _extension_of(name)
+        ext_label = _type_label(name, f.get("mime_type", ""))
         size_label = _human_size(f.get("size_bytes"))
         items.append(ui.ListItem(
             id=f["file_id"], title=name,
