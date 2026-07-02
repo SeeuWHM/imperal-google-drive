@@ -1,0 +1,115 @@
+"""Thin wrappers over Drive/Docs/Sheets REST calls — one primitive per API
+operation, no orchestration baked in here (the handler layer decides what to
+call and when)."""
+from __future__ import annotations
+
+from .helpers import DOCS_API, DRIVE_API, DRIVE_UPLOAD_API, SHEETS_API
+from .token_refresh import _refresh_token_if_needed
+
+
+def _auth_headers(acc: dict) -> dict:
+    return {"Authorization": f"Bearer {acc['access_token']}"}
+
+
+# ── Drive ──────────────────────────────────────────────────────────────────
+
+
+async def drive_get_metadata(ctx, acc: dict, file_id: str):
+    acc = await _refresh_token_if_needed(ctx, acc)
+    return await ctx.http.get(
+        f"{DRIVE_API}/files/{file_id}",
+        params={"fields": "id,name,mimeType,modifiedTime,size"},
+        headers=_auth_headers(acc),
+    )
+
+
+async def drive_list_files(ctx, acc: dict):
+    """List every file this drive.file grant currently has access to.
+
+    This is the ground truth for reconciliation: a file the user deleted or
+    unshared from the app simply stops appearing here — no per-file
+    existence check needed, one call reflects current access for all of them.
+    """
+    acc = await _refresh_token_if_needed(ctx, acc)
+    return await ctx.http.get(
+        f"{DRIVE_API}/files",
+        params={"fields": "files(id,name,mimeType,modifiedTime,size)", "pageSize": 200, "q": "trashed=false"},
+        headers=_auth_headers(acc),
+    )
+
+
+async def drive_download_media(ctx, acc: dict, file_id: str):
+    acc = await _refresh_token_if_needed(ctx, acc)
+    return await ctx.http.get(
+        f"{DRIVE_API}/files/{file_id}",
+        params={"alt": "media"},
+        headers=_auth_headers(acc),
+    )
+
+
+async def drive_upload_media(ctx, acc: dict, file_id: str, content: bytes, mime_type: str = "text/plain"):
+    acc = await _refresh_token_if_needed(ctx, acc)
+    return await ctx.http.patch(
+        f"{DRIVE_UPLOAD_API}/files/{file_id}",
+        params={"uploadType": "media"},
+        headers={**_auth_headers(acc), "Content-Type": mime_type},
+        content=content,
+    )
+
+
+# ── Docs ───────────────────────────────────────────────────────────────────
+
+
+async def docs_get(ctx, acc: dict, document_id: str):
+    acc = await _refresh_token_if_needed(ctx, acc)
+    return await ctx.http.get(f"{DOCS_API}/documents/{document_id}", headers=_auth_headers(acc))
+
+
+async def docs_batch_update(ctx, acc: dict, document_id: str, requests: list[dict]):
+    acc = await _refresh_token_if_needed(ctx, acc)
+    return await ctx.http.post(
+        f"{DOCS_API}/documents/{document_id}:batchUpdate",
+        headers=_auth_headers(acc),
+        json={"requests": requests},
+    )
+
+
+def walk_document_text(doc_json: dict) -> str:
+    """Flatten a Docs API document JSON body into plain text."""
+    parts = []
+    for elem in doc_json.get("body", {}).get("content", []):
+        para = elem.get("paragraph")
+        if not para:
+            continue
+        for pe in para.get("elements", []):
+            parts.append(pe.get("textRun", {}).get("content", ""))
+    return "".join(parts)
+
+
+def document_end_index(doc_json: dict) -> int:
+    """Index just past the last body element — needed for overwrite/append."""
+    content = doc_json.get("body", {}).get("content", [])
+    if not content:
+        return 1
+    return content[-1].get("endIndex", 1)
+
+
+# ── Sheets ───────────────────────────────────────────────────────────────────
+
+
+async def sheets_get_values(ctx, acc: dict, spreadsheet_id: str, cell_range: str):
+    acc = await _refresh_token_if_needed(ctx, acc)
+    return await ctx.http.get(
+        f"{SHEETS_API}/spreadsheets/{spreadsheet_id}/values/{cell_range}",
+        headers=_auth_headers(acc),
+    )
+
+
+async def sheets_update_values(ctx, acc: dict, spreadsheet_id: str, cell_range: str, values: list[list]):
+    acc = await _refresh_token_if_needed(ctx, acc)
+    return await ctx.http.put(
+        f"{SHEETS_API}/spreadsheets/{spreadsheet_id}/values/{cell_range}",
+        params={"valueInputOption": "USER_ENTERED"},
+        headers=_auth_headers(acc),
+        json={"values": values},
+    )
