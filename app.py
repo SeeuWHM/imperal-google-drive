@@ -63,6 +63,10 @@ ext.oauth(
 _APP_SECRETS = [
     ("google_client_id", "Shared Google OAuth Client ID for Doc Reader (developer-owned; one OAuth app for all users)", "IMPERAL_APPSECRET_DOCREADER_GOOGLE_CLIENT_ID"),
     ("google_client_secret", "Shared Google OAuth Client Secret for Doc Reader (developer-owned)", "IMPERAL_APPSECRET_DOCREADER_GOOGLE_CLIENT_SECRET"),
+    # Not a confidential secret by Google's own design (used client-side, restricted
+    # by HTTP referrer in Google Cloud Console) — stored as a secret anyway for
+    # consistent management, not because it needs to be kept hidden.
+    ("google_picker_api_key", "Google API Key restricted to Picker API for the picker.html static page (HTTP referrer restricted)", "IMPERAL_APPSECRET_DOCREADER_GOOGLE_PICKER_API_KEY"),
 ]
 for _name, _desc, _fb in _APP_SECRETS:
     ext._secrets[_name] = SecretSpec(

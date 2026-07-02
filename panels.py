@@ -14,6 +14,7 @@ import logging
 from imperal_sdk import ui
 
 from app import ext
+from handlers_connect import impl_open_file_picker
 from providers.helpers import _active_account, _all_accounts, reconcile_picked_files
 
 log = logging.getLogger("doc_reader")
@@ -52,10 +53,17 @@ async def build_files_panel(ctx, **kwargs) -> ui.UINode:
     files = await reconcile_picked_files(ctx, acc)
 
     if not files:
+        try:
+            picker_url = await impl_open_file_picker(ctx)
+            picker_button = ui.Button("Pick files from Google Drive", icon="Plus", variant="primary",
+                                       on_click=ui.Open(picker_url))
+        except Exception as e:
+            picker_button = ui.Alert(message=f"Picker not available yet: {e}", type="warning")
         return ui.Stack([
             ui.Header(text="Doc Reader", level=3),
             ui.Empty(message="No files picked yet", icon="FileText"),
-            ui.Text("Use the Google Picker to choose which files Doc Reader can access.", variant="caption"),
+            picker_button,
+            ui.Text("After picking, paste the shown JSON back to Webby and say \"register these files\".", variant="caption"),
         ], gap=2)
 
     items = []

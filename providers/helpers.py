@@ -18,6 +18,13 @@ GOOGLE_SHEET_MIME = "application/vnd.google-apps.spreadsheet"
 # public path, same pattern as web-tools' WEB_TOOLS_API_URL.
 DOC_EXTRACTOR_URL = "https://api.webhostmost.com/doc-extractor"
 
+# Static Picker page — GitHub Pages, same repo as this extension's source
+# (docs/picker.html). Self-contained: does its own client-side Google OAuth
+# (Identity Services) with drive.file scope, no callback into Imperal's
+# backend needed — see extensions/doc-reader.md for why (ctx.as_user()
+# requires system context, which a webhook handler does not have).
+PICKER_PAGE_URL = "https://seeuwhm.github.io/imperal-google-drive/picker.html"
+
 
 async def _all_accounts(ctx) -> list[dict]:
     docs = await ctx.store.query(ACCOUNTS_COLLECTION)

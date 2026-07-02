@@ -50,3 +50,14 @@ class WriteSpreadsheetParams(BaseModel):
     file_id: str = Field(description="Google Sheets file ID.")
     cell_range: str = Field(description="A1 notation range, e.g. 'Sheet1!A1:D10'.")
     values: list[list[str | int | float | bool | None]] = Field(description="Row-major 2D array of cell values.")
+
+
+class PickedFileInput(BaseModel):
+    file_id: str
+    name: str
+    mime_type: str
+    size_bytes: int = 0
+
+
+class RegisterPickedFilesParams(BaseModel):
+    files: list[PickedFileInput] = Field(description="Files copied from the Google Picker page's output box (JSON with a 'files' array). Paste that exact array here.")

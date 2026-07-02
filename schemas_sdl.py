@@ -18,6 +18,11 @@ class OAuthConnectResult(sdl.Entity):
     instruction: str | None = None
 
 
+class PickerLinkResult(sdl.Entity):
+    kind: str = "picker_link"
+    picker_url: str | None = None
+
+
 class DocFile(sdl.Entity, sdl.FileObject, sdl.Timestamped):
     """A file the user has picked through connect_google_docs' Google Picker."""
     kind: str = "doc_file"
@@ -79,6 +84,10 @@ def build_oauth_connect(auth_url: str | None, already_connected: bool, instructi
         already_connected=already_connected,
         instruction=instruction,
     )
+
+
+def build_picker_link(picker_url: str) -> PickerLinkResult:
+    return PickerLinkResult(id="picker-link", title="Pick files from Google Drive", picker_url=picker_url)
 
 
 def build_doc_file(f: dict) -> DocFile:
