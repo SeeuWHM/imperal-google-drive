@@ -38,6 +38,18 @@ async def drive_list_files(ctx, acc: dict):
     )
 
 
+async def drive_about(ctx, acc: dict):
+    """The signed-in user's identity for this account. drive.file grants this
+    (about.get needs no extra scope), so we can show the real email even
+    though Google doesn't hand it to the platform for a drive.file-only grant."""
+    acc = await _refresh_token_if_needed(ctx, acc)
+    return await ctx.http.get(
+        f"{DRIVE_API}/about",
+        params={"fields": "user(displayName,emailAddress)"},
+        headers=_auth_headers(acc),
+    )
+
+
 async def drive_download_media(ctx, acc: dict, file_id: str):
     acc = await _refresh_token_if_needed(ctx, acc)
     return await ctx.http.get(

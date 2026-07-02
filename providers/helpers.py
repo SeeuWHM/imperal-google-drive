@@ -44,7 +44,7 @@ PICKER_STAGE_TOKEN_URL = f"{DOC_EXTRACTOR_URL}/v1/picker/stage-token"
 # OUR google_api once, at load, immune to later sys.modules shadowing.
 # Constants above are defined first, so google_api's `from .helpers import ...`
 # resolves the circular import cleanly.
-from .google_api import drive_list_files  # noqa: E402
+from .google_api import drive_about, drive_list_files  # noqa: E402
 
 
 async def _all_accounts(ctx) -> list[dict]:
@@ -54,7 +54,31 @@ async def _all_accounts(ctx) -> list[dict]:
         item = dict(d.data)
         item["doc_id"] = d.id
         out.append(item)
+    await _hydrate_missing_emails(ctx, out)
     return out
+
+
+async def _hydrate_missing_emails(ctx, accounts: list[dict]) -> None:
+    """A drive.file-only grant doesn't give Google the account's email, so the
+    platform stores "unknown". Fetch it once from drive/v3/about (allowed under
+    drive.file) and persist it, so accounts show real addresses AND each keeps
+    a distinct pool (without a real email, every account would collide under
+    "unknown"). Best-effort — must never break account loading."""
+    for acc in accounts:
+        email = acc.get("email")
+        if email and email != "unknown":
+            continue  # already has a real address — one-time cost per account
+        try:
+            resp = await drive_about(ctx, acc)
+            resp.raise_for_status()
+            real = ((resp.json() or {}).get("user") or {}).get("emailAddress")
+        except Exception:
+            continue
+        doc_id = acc.get("doc_id")
+        if real and doc_id:
+            acc["email"] = real
+            await ctx.store.update(ACCOUNTS_COLLECTION, doc_id,
+                                   {k: v for k, v in acc.items() if k != "doc_id"})
 
 
 async def _active_account(ctx) -> dict:
@@ -66,10 +90,15 @@ async def _active_account(ctx) -> dict:
 
 
 def _account_email(acc: dict) -> str:
-    """Stable per-account key used to scope picked files. Prefer the real
-    Google address the platform stored on the OAuth account record; fall back
-    to the store doc id so scoping still works if `email` is ever absent."""
-    return acc.get("email") or acc.get("doc_id") or ""
+    """Stable, UNIQUE per-account key used to scope picked files. Prefer the
+    real Google address; fall back to the store doc id when it's absent or the
+    "unknown" placeholder (drive.file-only grants) — otherwise every account
+    would collide under one key. `_hydrate_missing_emails` fills the real
+    address in for display; this stays safe even if that fetch failed."""
+    email = acc.get("email")
+    if email and email != "unknown":
+        return email
+    return acc.get("doc_id") or ""
 
 
 async def _account_by_email(ctx, account: str) -> dict:

@@ -18,7 +18,7 @@ from imperal_sdk import ui
 
 from app import ext
 from handlers_accounts import impl_list_accounts
-from handlers_connect import impl_list_connected_files
+from handlers_connect import impl_list_connected_files, impl_open_file_picker
 from providers.helpers import _account_email, _active_account, _all_accounts
 
 log = logging.getLogger("doc_reader")
@@ -104,6 +104,16 @@ async def build_files_panel(ctx, **kwargs) -> ui.UINode:
         else ui.Empty(message="No files picked for this account yet", icon="FileText")
     )
 
+    # Stage a fresh picker token and open the picker page in a new tab on click.
+    # ui.Open reliably opens a URL; ui.Call returns the URL but the platform does
+    # not auto-open it. Falls back to a warning if a token can't be staged.
+    try:
+        picker_url = await impl_open_file_picker(ctx, account=active_email)
+        pick_btn = ui.Button("Pick files from Drive", icon="Plus", variant="primary",
+                             on_click=ui.Open(picker_url))
+    except Exception as exc:
+        pick_btn = ui.Alert(message=f"Picker not ready: {exc}", type="warning")
+
     return ui.Stack([
         ui.Header(text="Doc Reader", level=3),
         ui.Text("Accounts", variant="caption"),
@@ -112,7 +122,6 @@ async def build_files_panel(ctx, **kwargs) -> ui.UINode:
                   on_click=ui.Call("connect_google_docs")),
         ui.Divider(),
         ui.Text(f"Files — {active_email}", variant="caption"),
-        ui.Button("Pick files from Drive", icon="Plus", variant="primary",
-                  on_click=ui.Call("open_file_picker", account=active_email)),
+        pick_btn,
         files_block,
     ], gap=2, className="pb-4")
