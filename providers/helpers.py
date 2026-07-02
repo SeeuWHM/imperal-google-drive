@@ -36,6 +36,16 @@ PICKER_PAGE_URL = f"{DOC_EXTRACTOR_URL}/v1/picker"
 PICKER_CLAIM_URL = f"{DOC_EXTRACTOR_URL}/v1/picker/claim"
 PICKER_STAGE_TOKEN_URL = f"{DOC_EXTRACTOR_URL}/v1/picker/stage-token"
 
+# Bind at MODULE LOAD (not inside reconcile) — see below. When an extension
+# runs in the shared worker with others that also have a top-level `providers`
+# package (e.g. mail-client, which has NO google_api), a call-time
+# `from .google_api import ...` can resolve `providers` to the wrong package
+# and raise "No module named 'providers.google_api'". Importing here binds to
+# OUR google_api once, at load, immune to later sys.modules shadowing.
+# Constants above are defined first, so google_api's `from .helpers import ...`
+# resolves the circular import cleanly.
+from .google_api import drive_list_files  # noqa: E402
+
 
 async def _all_accounts(ctx) -> list[dict]:
     docs = await ctx.store.query(ACCOUNTS_COLLECTION)
@@ -126,8 +136,6 @@ async def reconcile_picked_files(ctx, acc: dict) -> list[dict]:
     refresh, etc.) the local list is returned unpruned rather than blanked —
     a stale list beats a false "everything is gone".
     """
-    from .google_api import drive_list_files  # local import: avoids a circular import with google_api's helpers usage
-
     local_files = await _all_picked_files(ctx, _account_email(acc))
     if not local_files:
         return local_files
