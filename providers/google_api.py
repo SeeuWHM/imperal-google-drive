@@ -109,6 +109,17 @@ def document_end_index(doc_json: dict) -> int:
 # ── Sheets ───────────────────────────────────────────────────────────────────
 
 
+async def sheets_get_metadata(ctx, acc: dict, spreadsheet_id: str):
+    """Sheet names + dimensions — needed before a caller can address a range
+    by name (there's no way to guess "Sheet1" is right otherwise)."""
+    acc = await _refresh_token_if_needed(ctx, acc)
+    return await ctx.http.get(
+        f"{SHEETS_API}/spreadsheets/{spreadsheet_id}",
+        params={"fields": "properties.title,sheets.properties"},
+        headers=_auth_headers(acc),
+    )
+
+
 async def sheets_get_values(ctx, acc: dict, spreadsheet_id: str, cell_range: str):
     acc = await _refresh_token_if_needed(ctx, acc)
     return await ctx.http.get(

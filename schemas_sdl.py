@@ -73,6 +73,23 @@ class SpreadsheetRange(sdl.Entity):
     values: list[list] = sdl_field(default_factory=list, role="content.body")
 
 
+class SpreadsheetInfo(sdl.Entity):
+    """Sheet names + dimensions — needed before a range can be addressed by
+    name, since there is no way to guess a sheet's title otherwise."""
+    kind: str = "spreadsheet_info"
+    file_id: str | None = None
+    sheets: list[dict] = sdl_field(default_factory=list, role="content.body")
+
+
+class AggregateResult(sdl.Entity):
+    kind: str = "aggregate_result"
+    file_id: str | None = None
+    cell_range: str | None = None
+    operation: str | None = None
+    result: float = 0.0
+    cell_count: int = 0
+
+
 # ── Builders — plain dict/dataclass -> SDL entity ────────────────────────────
 
 
@@ -133,4 +150,15 @@ def build_spreadsheet_range(file_id: str, cell_range: str, values: list[list]) -
     return SpreadsheetRange(
         id=f"{file_id}:{cell_range}", title=f"{file_id} {cell_range}",
         file_id=file_id, cell_range=cell_range, row_count=len(values), values=values,
+    )
+
+
+def build_spreadsheet_info(file_id: str, sheets: list[dict]) -> SpreadsheetInfo:
+    return SpreadsheetInfo(id=file_id, title=f"Sheets in {file_id}", file_id=file_id, sheets=sheets)
+
+
+def build_aggregate_result(file_id: str, cell_range: str, operation: str, result: float, cell_count: int) -> AggregateResult:
+    return AggregateResult(
+        id=f"{file_id}:{cell_range}:{operation}", title=f"{operation}({cell_range})",
+        file_id=file_id, cell_range=cell_range, operation=operation, result=result, cell_count=cell_count,
     )

@@ -1,6 +1,8 @@
 """Pydantic parameter models for @chat.function handlers."""
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -50,6 +52,12 @@ class WriteSpreadsheetParams(BaseModel):
     file_id: str = Field(description="Google Sheets file ID.")
     cell_range: str = Field(description="A1 notation range, e.g. 'Sheet1!A1:D10'.")
     values: list[list[str | int | float | bool | None]] = Field(description="Row-major 2D array of cell values.")
+
+
+class AggregateSpreadsheetParams(BaseModel):
+    file_id: str = Field(description="Google Sheets file ID.")
+    cell_range: str = Field(description="A1 notation range, e.g. 'Sheet1!B2:B50'.")
+    operation: Literal["sum", "count", "average", "min", "max"] = Field(description="Exact computation to run over the range's numeric cells (count counts all non-empty cells, not just numeric ones).")
 
 
 class PickedFileInput(BaseModel):
