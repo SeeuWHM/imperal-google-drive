@@ -38,6 +38,22 @@ async def drive_list_files(ctx, acc: dict):
     )
 
 
+async def drive_list_folder(ctx, acc: dict, folder_id: str):
+    """List the direct children of a folder the user granted via the Picker.
+    Under drive.file, a granted folder's contents are reachable with the same
+    token, so this enumerates them (files + subfolders) for expansion."""
+    acc = await _refresh_token_if_needed(ctx, acc)
+    return await ctx.http.get(
+        f"{DRIVE_API}/files",
+        params={
+            "q": f"'{folder_id}' in parents and trashed=false",
+            "fields": "files(id,name,mimeType,modifiedTime,size)",
+            "pageSize": 200,
+        },
+        headers=_auth_headers(acc),
+    )
+
+
 async def drive_about(ctx, acc: dict):
     """The signed-in user's identity for this account. drive.file grants this
     (about.get needs no extra scope), so we can show the real email even

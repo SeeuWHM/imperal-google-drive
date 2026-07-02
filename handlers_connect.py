@@ -22,6 +22,7 @@ from providers.helpers import (
     _all_accounts,
     _all_picked_files,
     _remove_picked_file,
+    connected_files,
     reconcile_picked_files,
 )
 from providers.token_refresh import _refresh_token_if_needed
@@ -155,7 +156,7 @@ async def impl_list_connected_files(ctx) -> list[dict]:
     if not accounts:
         return []
     acc = await _active_account(ctx)
-    return await reconcile_picked_files(ctx, acc)
+    return await connected_files(ctx, acc)
 
 
 async def impl_register_picked_files(ctx, files: list) -> int:

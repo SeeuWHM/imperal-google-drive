@@ -13,6 +13,7 @@ SHEETS_API = "https://sheets.googleapis.com/v4"
 GOOGLE_DOC_MIME = "application/vnd.google-apps.document"
 GOOGLE_SHEET_MIME = "application/vnd.google-apps.spreadsheet"
 GOOGLE_SLIDE_MIME = "application/vnd.google-apps.presentation"
+GOOGLE_FOLDER_MIME = "application/vnd.google-apps.folder"
 
 # Public route — doc-reader (whm-ai-worker) and doc-extractor-service
 # (api-server) are different machines; must go through the nginx-proxied
@@ -44,7 +45,7 @@ PICKER_STAGE_TOKEN_URL = f"{DOC_EXTRACTOR_URL}/v1/picker/stage-token"
 # OUR google_api once, at load, immune to later sys.modules shadowing.
 # Constants above are defined first, so google_api's `from .helpers import ...`
 # resolves the circular import cleanly.
-from .google_api import drive_about, drive_list_files  # noqa: E402
+from .google_api import drive_about, drive_get_metadata, drive_list_files, drive_list_folder  # noqa: E402
 
 
 async def _all_accounts(ctx) -> list[dict]:
@@ -131,16 +132,31 @@ async def _active_picked_files(ctx) -> list[dict]:
 
 
 async def _find_picked_file(ctx, file_id: str) -> dict:
-    """Look up a picked file in the ACTIVE account's pool. A drive.file grant
-    is scoped to the account that picked the file, so reads/writes must use
-    that account's token — the active-account pool guarantees that (handlers
-    read with ``_active_account``)."""
+    """Resolve a file the ACTIVE account may read. Allowed if it was picked
+    directly, OR it lives inside a folder the account granted via the Picker
+    (drive.file cascades folder access to its contents — verified with a
+    metadata read). Reads use the active account's token."""
     acc = await _active_account(ctx)
     active_email = _account_email(acc)
     files = await _all_picked_files(ctx, active_email)
     match = next((f for f in files if f.get("file_id") == file_id), None)
     if match:
         return match
+    # Inside a granted folder? The grant is the authority — a successful
+    # metadata read means this account can access the file.
+    if any(f.get("mime_type") == GOOGLE_FOLDER_MIME for f in files):
+        try:
+            resp = await drive_get_metadata(ctx, acc, file_id)
+            if resp.status_code == 200:
+                m = resp.json()
+                return {
+                    "file_id": file_id, "name": m.get("name"),
+                    "mime_type": m.get("mimeType"),
+                    "size_bytes": int(m.get("size", 0) or 0),
+                    "account_email": active_email,
+                }
+        except Exception:
+            pass
     # Picked, but under a different account? Point the caller at the fix.
     other = next((f for f in await _all_picked_files(ctx) if f.get("file_id") == file_id), None)
     if other:
@@ -149,8 +165,8 @@ async def _find_picked_file(ctx, file_id: str) -> dict:
             f"account is {active_email!r}. Switch to that account (switch_account) first."
         )
     raise RuntimeError(
-        f"File {file_id!r} was not picked through the Google Picker for the active account "
-        "(drive.file only grants access to explicitly picked files). Ask the user to pick it first."
+        f"File {file_id!r} was not picked for the active account (drive.file only grants access to "
+        "explicitly picked files or folders). Ask the user to pick it, or the folder that contains it, first."
     )
 
 
@@ -183,6 +199,62 @@ async def reconcile_picked_files(ctx, acc: dict) -> list[dict]:
         else:
             await ctx.store.delete(FILES_COLLECTION, f["doc_id"])
     return kept
+
+
+async def _expand_folder(ctx, acc: dict, folder_id: str, account_email: str,
+                         out: list, seen: set, depth: int = 0, cap: int = 500) -> None:
+    """Recursively collect the files inside a picked folder (bounded by depth
+    and a file cap). A folder granted via the Picker exposes its contents to
+    the same drive.file token, so files.list scoped to the folder returns them.
+    Subfolders are walked; folders themselves are not added as readable files."""
+    if folder_id in seen or depth > 8 or len(out) >= cap:
+        return
+    seen.add(folder_id)
+    try:
+        resp = await drive_list_folder(ctx, acc, folder_id)
+        resp.raise_for_status()
+        children = resp.json().get("files", [])
+    except Exception:
+        return
+    for c in children:
+        if len(out) >= cap:
+            return
+        if c.get("mimeType") == GOOGLE_FOLDER_MIME:
+            await _expand_folder(ctx, acc, c["id"], account_email, out, seen, depth + 1, cap)
+        else:
+            out.append({
+                "file_id": c["id"], "name": c.get("name"),
+                "mime_type": c.get("mimeType"),
+                "size_bytes": int(c.get("size", 0) or 0),
+                "account_email": account_email,
+            })
+
+
+async def connected_files(ctx, acc: dict) -> list[dict]:
+    """The active account's readable files: directly-picked files PLUS the
+    (live, recursively-expanded) contents of any picked folder. Folder records
+    themselves are not returned as readable files — only the files inside them."""
+    account_email = _account_email(acc)
+    records = await reconcile_picked_files(ctx, acc)
+    out: list[dict] = []
+    seen_ids: set = set()
+    for r in records:
+        if r.get("mime_type") == GOOGLE_FOLDER_MIME:
+            continue
+        if r["file_id"] not in seen_ids:
+            seen_ids.add(r["file_id"])
+            out.append(r)
+    folder_recs = [r for r in records if r.get("mime_type") == GOOGLE_FOLDER_MIME]
+    if folder_recs:
+        walked: set = set()
+        expanded: list = []
+        for fr in folder_recs:
+            await _expand_folder(ctx, acc, fr["file_id"], account_email, expanded, walked)
+        for f in expanded:
+            if f["file_id"] not in seen_ids:
+                seen_ids.add(f["file_id"])
+                out.append(f)
+    return out
 
 
 async def _remove_picked_file(ctx, file_id: str) -> None:
