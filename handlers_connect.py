@@ -1,6 +1,8 @@
 """Doc Reader · Connect, Picker, file list, and disconnect handlers."""
 from __future__ import annotations
 
+import hashlib
+import hmac
 import logging
 import secrets as _secrets
 from urllib.parse import urlencode
@@ -13,11 +15,13 @@ from providers.helpers import (
     FILES_COLLECTION,
     PICKER_CLAIM_URL,
     PICKER_PAGE_URL,
+    PICKER_STAGE_TOKEN_URL,
     _active_account,
     _all_accounts,
     _remove_picked_file,
     reconcile_picked_files,
 )
+from providers.token_refresh import _refresh_token_if_needed
 from schemas import EmptyParams, FileIdParams, RegisterPickedFilesParams
 from schemas_sdl import (
     DocFileList,
@@ -33,7 +37,11 @@ from schemas_sdl import (
 log = logging.getLogger("doc_reader")
 
 _CACHE_KEY = "pending_picker_session"
-_SESSION_TTL_SECONDS = 280  # ctx.cache hard cap is 300s; matches the relay's own TTL on doc-extractor-service
+_SESSION_TTL_SECONDS = 280  # ctx.cache hard cap is 300s; matches the file-relay's own TTL on doc-extractor-service
+
+
+def _sign_session(secret: str, session: str) -> str:
+    return hmac.new(secret.encode(), session.encode(), hashlib.sha256).hexdigest()
 
 
 # ─── impl_* business logic ────────────────────────────────────────────── #
@@ -52,20 +60,36 @@ async def impl_connect(ctx) -> tuple[str | None, bool, str | None]:
 
 
 async def impl_open_file_picker(ctx) -> str:
-    """Builds the Picker page URL, with a fresh session token remembered in
-    ctx.cache so a later call (e.g. the next list_connected_files) can claim
-    whatever the user picks — see _claim_pending_picker_session below for why
-    this two-step handoff exists instead of a direct webhook callback."""
-    client_id = await ctx.secrets.get("google_client_id")
+    """Builds the Picker page URL. The page does NOT run its own Google
+    login — confirmed empirically that a drive.file grant obtained via a
+    separate client-side OAuth is invisible to this extension's server-side
+    refresh-token grant later (different grant lineage, even same
+    client_id/user/scope). Instead: refresh OUR stored token, stage it
+    (HMAC-signed, 30s TTL) for the page to fetch once, so picked files end
+    up under the SAME lineage this extension already reads with."""
     api_key = await ctx.secrets.get("google_picker_api_key")
-    if not client_id or not api_key:
+    hmac_secret = await ctx.secrets.get("picker_hmac_secret")
+    if not api_key or not hmac_secret:
         raise RuntimeError(
-            "Doc Reader's Google OAuth Client ID / Picker API Key are not configured yet "
-            "(google_client_id / google_picker_api_key app secrets)."
+            "Doc Reader's Picker API Key / HMAC secret are not configured yet "
+            "(google_picker_api_key / picker_hmac_secret app secrets)."
         )
-    token = _secrets.token_urlsafe(24)
-    await ctx.cache.set(_CACHE_KEY, PendingPickerSession(token=token), ttl_seconds=_SESSION_TTL_SECONDS)
-    query = urlencode({"client_id": client_id, "api_key": api_key, "session": token})
+
+    acc = await _active_account(ctx)  # raises clearly if connect_google_docs hasn't run yet
+    acc = await _refresh_token_if_needed(ctx, acc)
+
+    session = _secrets.token_urlsafe(24)
+    sig = _sign_session(hmac_secret, session)
+
+    resp = await ctx.http.post(
+        PICKER_STAGE_TOKEN_URL,
+        json={"session": session, "access_token": acc["access_token"], "sig": sig},
+        timeout=10,
+    )
+    resp.raise_for_status()
+
+    await ctx.cache.set(_CACHE_KEY, PendingPickerSession(token=session), ttl_seconds=_SESSION_TTL_SECONDS)
+    query = urlencode({"api_key": api_key, "session": session, "sig": sig})
     return f"{PICKER_PAGE_URL}?{query}"
 
 
@@ -173,7 +197,7 @@ async def fn_connect_google_docs(ctx, params: EmptyParams) -> ActionResult:
 @chat.function(
     "open_file_picker", action_type="read",
     data_model=PickerLinkResult,
-    description="Get a link to the Google Picker page where the user selects which Drive files Doc Reader may access. Opens in a new browser tab. Picked files are usually registered automatically — just call list_connected_files afterwards to check.",
+    description="Get a link to the Google Picker page where the user selects which Drive files Doc Reader may access. Requires connect_google_docs to have been completed first. Opens in a new browser tab. Picked files are usually registered automatically — just call list_connected_files afterwards to check.",
 )
 async def fn_open_file_picker(ctx, params: EmptyParams) -> ActionResult:
     try:

@@ -67,6 +67,12 @@ _APP_SECRETS = [
     # by HTTP referrer in Google Cloud Console) — stored as a secret anyway for
     # consistent management, not because it needs to be kept hidden.
     ("google_picker_api_key", "Google API Key restricted to Picker API for the picker.html static page (HTTP referrer restricted)", "IMPERAL_APPSECRET_DOCREADER_GOOGLE_PICKER_API_KEY"),
+    # Shared with doc-extractor-service (its PICKER_HMAC_SECRET env var) — signs
+    # the short-lived OAuth token handoff so the Picker page never runs its own
+    # separate Google login (confirmed empirically: a grant obtained that way is
+    # invisible to this extension's server-side refresh token — different grant
+    # lineage). Must match exactly on both sides.
+    ("picker_hmac_secret", "HMAC key shared with doc-extractor-service for the Picker OAuth token handoff", "IMPERAL_APPSECRET_DOCREADER_PICKER_HMAC_SECRET"),
 ]
 for _name, _desc, _fb in _APP_SECRETS:
     ext._secrets[_name] = SecretSpec(

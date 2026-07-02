@@ -20,15 +20,21 @@ GOOGLE_SLIDE_MIME = "application/vnd.google-apps.presentation"
 DOC_EXTRACTOR_URL = "https://api.webhostmost.com/doc-extractor"
 
 # Picker page — hosted BY doc-extractor-service itself (app/picker.py on
-# api-server), not GitHub Pages. Does its own client-side Google OAuth
-# (Identity Services) with drive.file scope, then POSTs the result to that
-# same service's /v1/picker/stage (Redis, short TTL) keyed by a session
-# token we generate below. We claim it later via /v1/picker/claim/{token}
-# from a REAL, correctly-scoped ctx — no @ext.webhook involved at all,
-# because ctx.as_user() requires system context, which a webhook handler
-# does not have (see extensions/doc-reader.md).
+# api-server), not GitHub Pages. Does NOT run its own Google login — a
+# drive.file grant obtained via the page's own separate client-side OAuth
+# was confirmed (empirically, not assumed) invisible to this extension's
+# server-side refresh-token grant, even same client_id/user/scope. Instead
+# we stage a fresh access token (refreshed from OUR stored refresh_token)
+# via /v1/picker/stage-token, HMAC-signed + 30s TTL; the page fetches it
+# once and hands it straight to Picker's setOAuthToken(). Picked files
+# themselves go through the separate, lower-sensitivity /v1/picker/stage
+# (Redis, longer TTL) and get claimed via /v1/picker/claim/{token} from a
+# REAL, correctly-scoped ctx — no @ext.webhook involved at all, because
+# ctx.as_user() requires system context, which a webhook handler does not
+# have (see extensions/doc-reader.md).
 PICKER_PAGE_URL = f"{DOC_EXTRACTOR_URL}/v1/picker"
 PICKER_CLAIM_URL = f"{DOC_EXTRACTOR_URL}/v1/picker/claim"
+PICKER_STAGE_TOKEN_URL = f"{DOC_EXTRACTOR_URL}/v1/picker/stage-token"
 
 
 async def _all_accounts(ctx) -> list[dict]:
