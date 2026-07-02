@@ -23,9 +23,9 @@ ext = Extension(
     version="0.1.0",
     display_name="Doc Reader",
     description=(
-        "Read and edit Google Docs, Google Sheets, and plain text files stored "
-        "in the user's Google Drive. Nothing is stored on Imperal — content is "
-        "fetched live and written straight back to the source document."
+        "Read and edit Google Docs, Google Sheets, and plain text files, and read "
+        "Google Slides, stored in the user's Google Drive. Nothing is stored on "
+        "Imperal — content is fetched live and written straight back to the source."
     ),
     icon="doc-reader.svg",
     actions_explicit=True,

@@ -57,6 +57,18 @@ async def drive_upload_media(ctx, acc: dict, file_id: str, content: bytes, mime_
     )
 
 
+async def drive_export_text(ctx, acc: dict, file_id: str, mime_type: str = "text/plain"):
+    """Drive's own format conversion — used for Google Slides, where walking
+    the native presentations.get structure (slide -> pageElement -> shape ->
+    text -> textRun) would just reimplement what this one call already does."""
+    acc = await _refresh_token_if_needed(ctx, acc)
+    return await ctx.http.get(
+        f"{DRIVE_API}/files/{file_id}/export",
+        params={"mimeType": mime_type},
+        headers=_auth_headers(acc),
+    )
+
+
 # ── Docs ───────────────────────────────────────────────────────────────────
 
 

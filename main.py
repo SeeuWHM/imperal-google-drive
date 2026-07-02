@@ -12,7 +12,7 @@ if _dir not in sys.path:
 _MODULES = (
     "app", "schemas", "schemas_sdl", "cache_models",
     "providers.helpers", "providers.token_refresh", "providers.google_api", "providers.text_windows",
-    "handlers_connect", "handlers_text_files", "handlers_docs", "handlers_sheets",
+    "handlers_connect", "handlers_text_files", "handlers_docs", "handlers_sheets", "handlers_slides",
     "skeleton", "panels",
 )
 for _m in [k for k in sys.modules if k in _MODULES]:
@@ -30,5 +30,6 @@ import handlers_connect      # noqa: E402, F401
 import handlers_text_files   # noqa: E402, F401
 import handlers_docs         # noqa: E402, F401
 import handlers_sheets       # noqa: E402, F401
+import handlers_slides       # noqa: E402, F401
 import skeleton              # noqa: E402, F401
 import panels                # noqa: E402, F401

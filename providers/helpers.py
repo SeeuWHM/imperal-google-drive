@@ -12,6 +12,7 @@ SHEETS_API = "https://sheets.googleapis.com/v4"
 
 GOOGLE_DOC_MIME = "application/vnd.google-apps.document"
 GOOGLE_SHEET_MIME = "application/vnd.google-apps.spreadsheet"
+GOOGLE_SLIDE_MIME = "application/vnd.google-apps.presentation"
 
 # Public route — doc-reader (whm-ai-worker) and doc-extractor-service
 # (api-server) are different machines; must go through the nginx-proxied
