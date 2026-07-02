@@ -10,7 +10,7 @@ if _dir not in sys.path:
     sys.path.insert(0, _dir)
 
 _MODULES = (
-    "app", "schemas", "schemas_sdl",
+    "app", "schemas", "schemas_sdl", "cache_models",
     "providers.helpers", "providers.token_refresh", "providers.google_api", "providers.text_windows",
     "handlers_connect", "handlers_text_files", "handlers_docs", "handlers_sheets",
     "skeleton", "panels",
@@ -22,6 +22,9 @@ for _m in [k for k in sys.modules if k in _MODULES]:
 from app import ext, chat  # noqa: E402, F401
 
 import schemas_sdl  # noqa: E402, F401
+
+# Register cache models BEFORE modules that use ctx.cache.
+import cache_models  # noqa: E402, F401
 
 import handlers_connect      # noqa: E402, F401
 import handlers_text_files   # noqa: E402, F401

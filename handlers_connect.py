@@ -2,13 +2,16 @@
 from __future__ import annotations
 
 import logging
+import secrets as _secrets
 from urllib.parse import urlencode
 
 from imperal_sdk.chat.action_result import ActionResult
 
 from app import chat
+from cache_models import PendingPickerSession
 from providers.helpers import (
     FILES_COLLECTION,
+    PICKER_CLAIM_URL,
     PICKER_PAGE_URL,
     _active_account,
     _all_accounts,
@@ -29,6 +32,9 @@ from schemas_sdl import (
 
 log = logging.getLogger("doc_reader")
 
+_CACHE_KEY = "pending_picker_session"
+_SESSION_TTL_SECONDS = 280  # ctx.cache hard cap is 300s; matches the relay's own TTL on doc-extractor-service
+
 
 # ─── impl_* business logic ────────────────────────────────────────────── #
 
@@ -46,13 +52,10 @@ async def impl_connect(ctx) -> tuple[str | None, bool, str | None]:
 
 
 async def impl_open_file_picker(ctx) -> str:
-    """Builds the Picker page URL. The page itself does its own client-side
-    Google auth and shows picked files as copy-paste JSON — there is no
-    backend callback (see extensions/doc-reader.md: ctx.as_user() requires
-    system context, which a webhook handler doesn't have, so a webhook
-    can't safely attribute a pick to a specific user without an unverified
-    workaround; the user relaying the result back through chat sidesteps
-    that entirely with zero platform assumptions)."""
+    """Builds the Picker page URL, with a fresh session token remembered in
+    ctx.cache so a later call (e.g. the next list_connected_files) can claim
+    whatever the user picks — see _claim_pending_picker_session below for why
+    this two-step handoff exists instead of a direct webhook callback."""
     client_id = await ctx.secrets.get("google_client_id")
     api_key = await ctx.secrets.get("google_picker_api_key")
     if not client_id or not api_key:
@@ -60,14 +63,64 @@ async def impl_open_file_picker(ctx) -> str:
             "Doc Reader's Google OAuth Client ID / Picker API Key are not configured yet "
             "(google_client_id / google_picker_api_key app secrets)."
         )
-    query = urlencode({"client_id": client_id, "api_key": api_key})
+    token = _secrets.token_urlsafe(24)
+    await ctx.cache.set(_CACHE_KEY, PendingPickerSession(token=token), ttl_seconds=_SESSION_TTL_SECONDS)
+    query = urlencode({"client_id": client_id, "api_key": api_key, "session": token})
     return f"{PICKER_PAGE_URL}?{query}"
 
 
+async def _claim_pending_picker_session(ctx) -> int:
+    """Best-effort: if the user has an open picker session, ask
+    doc-extractor-service's relay whether files were staged for it, and if
+    so register them and clear the session. Silent no-op if there's nothing
+    pending or the relay call fails — this runs as a side-effect of listing
+    files, it must never break that read."""
+    try:
+        pending = await ctx.cache.get(_CACHE_KEY, PendingPickerSession)
+    except Exception:
+        return 0
+    if not pending:
+        return 0
+
+    try:
+        resp = await ctx.http.get(f"{PICKER_CLAIM_URL}/{pending.token}", timeout=10)
+        resp.raise_for_status()
+        body = resp.json()
+        files = (body.get("data") or {}).get("files") if body.get("success") else None
+    except Exception:
+        return 0
+
+    if not files:
+        return 0  # not picked yet — leave the session cached, TTL handles cleanup
+
+    existing = {f.get("file_id") for f in await _all_picked_files_raw(ctx)}
+    added = 0
+    for f in files:
+        if f.get("file_id") in existing:
+            continue
+        await ctx.store.create(FILES_COLLECTION, {
+            "file_id": f.get("file_id"), "name": f.get("name"),
+            "mime_type": f.get("mime_type"), "size_bytes": f.get("size_bytes", 0),
+        })
+        added += 1
+    try:
+        await ctx.cache.delete(_CACHE_KEY)
+    except Exception:
+        pass
+    return added
+
+
+async def _all_picked_files_raw(ctx) -> list[dict]:
+    from providers.helpers import _all_picked_files
+    return await _all_picked_files(ctx)
+
+
 async def impl_list_connected_files(ctx) -> list[dict]:
-    """Live-reconciles against Google before returning — a file the user
-    deleted or unshared from the app on Google's side will already be
-    pruned from the result (see providers.helpers.reconcile_picked_files)."""
+    """Claims any pending Picker session first (so a file the user just
+    picked shows up immediately), then live-reconciles against Google — a
+    file the user deleted or unshared from the app on Google's side will
+    already be pruned from the result."""
+    await _claim_pending_picker_session(ctx)
     accounts = await _all_accounts(ctx)
     if not accounts:
         return []
@@ -76,6 +129,8 @@ async def impl_list_connected_files(ctx) -> list[dict]:
 
 
 async def impl_register_picked_files(ctx, files: list) -> int:
+    """Manual fallback path — used only if the picker page's automatic
+    staging call failed and it fell back to showing copy-paste JSON."""
     existing = {f.get("file_id") for f in await reconcile_picked_files(ctx, await _active_account(ctx))}
     added = 0
     for f in files:
@@ -118,12 +173,12 @@ async def fn_connect_google_docs(ctx, params: EmptyParams) -> ActionResult:
 @chat.function(
     "open_file_picker", action_type="read",
     data_model=PickerLinkResult,
-    description="Get a link to the Google Picker page where the user selects which Drive files Doc Reader may access. After picking, the page shows a JSON block — ask the user to paste it back so you can call register_picked_files with it.",
+    description="Get a link to the Google Picker page where the user selects which Drive files Doc Reader may access. Opens in a new browser tab. Picked files are usually registered automatically — just call list_connected_files afterwards to check.",
 )
 async def fn_open_file_picker(ctx, params: EmptyParams) -> ActionResult:
     try:
         url = await impl_open_file_picker(ctx)
-        return ActionResult.success(data=build_picker_link(url), summary="Picker link ready — open it, pick files, then paste the result back here.")
+        return ActionResult.success(data=build_picker_link(url), summary="Picker link ready — open it and pick files, then check list_connected_files.")
     except Exception as e:
         return ActionResult.error(str(e), retryable=False)
 
@@ -131,7 +186,7 @@ async def fn_open_file_picker(ctx, params: EmptyParams) -> ActionResult:
 @chat.function(
     "register_picked_files", action_type="write", event="file.connected",
     data_model=EditResult,
-    description="Register files the user just picked in the Google Picker page — pass the exact 'files' array from the JSON the page displayed. Skips files already registered.",
+    description="Manual fallback: register files from the JSON the Picker page showed, ONLY if it displayed a copy-paste box instead of confirming automatically (rare — means the automatic path failed). Skips files already registered.",
 )
 async def fn_register_picked_files(ctx, params: RegisterPickedFilesParams) -> ActionResult:
     try:
@@ -148,7 +203,7 @@ async def fn_register_picked_files(ctx, params: RegisterPickedFilesParams) -> Ac
 @chat.function(
     "list_connected_files", action_type="read",
     data_model=DocFileList,
-    description="List the Google Drive files the user has picked for Doc Reader to access (name, mime type, last modified). Does not return file content. Automatically drops files the user deleted or unshared on Google's side.",
+    description="List the Google Drive files the user has picked for Doc Reader to access (name, mime type, last modified). Does not return file content. Automatically picks up files just selected in the Picker, and drops files the user deleted or unshared on Google's side.",
 )
 async def fn_list_connected_files(ctx, params: EmptyParams) -> ActionResult:
     try:

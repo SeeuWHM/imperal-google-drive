@@ -6,6 +6,10 @@ asked for. `grouped_by` on ui.List exists but its exact contract (which
 ListItem field it groups by) isn't confirmed from the SDK source alone —
 left unset rather than guessing; the file extension is still visible via
 the badge/subtitle for now.
+
+Rendering this panel also claims any pending Picker session (via
+impl_list_connected_files) — so files just picked in the popup tab show up
+here on the next render, no manual step needed in the common case.
 """
 from __future__ import annotations
 
@@ -14,8 +18,8 @@ import logging
 from imperal_sdk import ui
 
 from app import ext
-from handlers_connect import impl_open_file_picker
-from providers.helpers import _active_account, _all_accounts, reconcile_picked_files
+from handlers_connect import impl_list_connected_files, impl_open_file_picker
+from providers.helpers import _all_accounts
 
 log = logging.getLogger("doc_reader")
 
@@ -49,8 +53,7 @@ async def build_files_panel(ctx, **kwargs) -> ui.UINode:
                       on_click=ui.Call("connect_google_docs")),
         ], gap=2)
 
-    acc = await _active_account(ctx)
-    files = await reconcile_picked_files(ctx, acc)
+    files = await impl_list_connected_files(ctx)
 
     if not files:
         try:
@@ -63,7 +66,7 @@ async def build_files_panel(ctx, **kwargs) -> ui.UINode:
             ui.Header(text="Doc Reader", level=3),
             ui.Empty(message="No files picked yet", icon="FileText"),
             picker_button,
-            ui.Text("After picking, paste the shown JSON back to Webby and say \"register these files\".", variant="caption"),
+            ui.Text("After picking, reopen this panel — files appear automatically.", variant="caption"),
         ], gap=2)
 
     items = []
