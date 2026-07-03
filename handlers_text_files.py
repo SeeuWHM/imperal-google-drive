@@ -1,16 +1,17 @@
 """Google Drive · Plain Drive files (not Google-native Docs/Sheets) —
 read/write/search.
 
-Read always routes through doc-extractor-service (see
-extensions/doc-extractor-service.md) — its magic-byte detection + per-format
-extractors handle PDF/DOCX/XLSX/PPTX/text/etc uniformly, so this extension
-never needs its own duplicate decode/parse logic. The LLM never sees raw
-bytes — only the extracted text, exactly the "goes through the extractor,
-then the LLM" routing that was asked for.
+READ path routes through doc-extractor-service's **server-side url-fetch**:
+we hand it the Drive media URL + a fresh drive.file token, and IT downloads
+the raw bytes (ctx.http in the extension cannot return raw binary — it decodes
+non-JSON bodies to text and mangles them), extracts text, stores it, and
+embeds it under source='gdrive' scoped to this user's imperal_id. The LLM
+never sees raw bytes — only extracted text (windowed) or, later, relevant
+chunks. Extraction+embedding are cached by content hash, so re-reading the
+same file costs no re-extraction/re-embedding.
 
-Write stays Drive-media-upload directly (the extractor is read-only) and is
-guarded: only genuinely plain-text mime types are writable — a PDF/DOCX
-can't be "overwritten" as text without destroying the original format.
+Write stays a direct Drive media upload (extractor is read-only) and is
+guarded: only genuinely plain-text mime types are writable.
 """
 from __future__ import annotations
 
@@ -19,14 +20,16 @@ import logging
 from imperal_sdk.chat.action_result import ActionResult
 
 from app import chat
-from providers.google_api import drive_download_media, drive_upload_media
-from providers.helpers import DOC_EXTRACTOR_URL, _active_account, _find_picked_file
+from providers.google_api import drive_upload_media
+from providers.helpers import DOC_EXTRACTOR_URL, DRIVE_API, _active_account, _find_picked_file
 from providers.text_windows import grep_lines, line_window
+from providers.token_refresh import _refresh_token_if_needed
 from schemas import OverwriteTextParams, ReadRangeParams, SearchParams
 from schemas_sdl import EditResult, SearchResults, TextWindow, build_edit_result, build_search_results, build_text_window
 
 log = logging.getLogger("doc_reader")
 
+_SOURCE = "gdrive"
 _WRITABLE_MIME_PREFIXES = ("text/",)
 _WRITABLE_MIME_EXACT = {"application/json", "application/xml", "application/x-yaml"}
 
@@ -35,31 +38,60 @@ def _is_writable_as_text(mime_type: str) -> bool:
     return mime_type.startswith(_WRITABLE_MIME_PREFIXES) or mime_type in _WRITABLE_MIME_EXACT
 
 
-async def _extract_text(ctx, filename: str, data: bytes, mime_type: str) -> str:
+def _imperal_id(ctx) -> str:
+    user = getattr(ctx, "user", None)
+    uid = getattr(user, "imperal_id", None) if user else None
+    if not uid:
+        raise RuntimeError("no user context (imperal_id) — cannot scope file storage")
+    return uid
+
+
+async def _ingest_via_extractor(ctx, file_id: str, picked: dict) -> dict:
+    """Have doc-extractor-service fetch the Drive file itself (real bytes),
+    extract + store + embed under (source=gdrive, imperal_id). Returns the
+    DocumentOut dict; raises a clear reason if the file couldn't be read."""
+    acc = await _active_account(ctx)
+    acc = await _refresh_token_if_needed(ctx, acc)
+    media_url = f"{DRIVE_API}/files/{file_id}?alt=media"
     resp = await ctx.http.post(
-        f"{DOC_EXTRACTOR_URL}/v1/extract",
-        files={"file": (filename or "file", data, mime_type or "application/octet-stream")},
-        timeout=60,
+        f"{DOC_EXTRACTOR_URL}/v1/documents",
+        data={
+            "source": _SOURCE,
+            "imperal_id": _imperal_id(ctx),
+            "url": media_url,
+            "auth": acc["access_token"],
+            "filename": picked.get("name", file_id),
+        },
+        timeout=120,
     )
     resp.raise_for_status()
     body = resp.json()
     if not body.get("success"):
-        raise RuntimeError(body.get("error", {}).get("message", "extraction failed"))
-    result = body["data"]
-    if not result.get("extraction_acceptable"):
-        raise RuntimeError(result.get("extraction_error") or "could not extract text from this file")
-    return result["text"]
+        raise RuntimeError(body.get("error", {}).get("message", "ingest failed"))
+    doc = body["data"]["documents"][0]
+    if doc.get("status") not in ("processed", "cached"):
+        # clear, machine-derived reason: unsupported / corrupt / timeout / etc.
+        raise RuntimeError(doc.get("error") or f"could not read this file ({doc.get('error_code')})")
+    return doc
+
+
+async def _get_file_text(ctx, file_id: str, picked: dict) -> str:
+    doc = await _ingest_via_extractor(ctx, file_id, picked)
+    resp = await ctx.http.get(
+        f"{DOC_EXTRACTOR_URL}/v1/documents/{doc['document_id']}/text",
+        params={"source": _SOURCE, "imperal_id": _imperal_id(ctx), "offset": 0, "limit": 5_000_000},
+        timeout=60,
+    )
+    resp.raise_for_status()
+    return (resp.json().get("data") or {}).get("text", "")
 
 
 # ─── impl_* business logic ────────────────────────────────────────────── #
 
 
 async def impl_read_text_file(ctx, file_id: str, offset: int, limit: int | None) -> tuple[str, bool, int]:
-    acc = await _active_account(ctx)
     picked = await _find_picked_file(ctx, file_id)
-    resp = await drive_download_media(ctx, acc, file_id)
-    resp.raise_for_status()
-    text = await _extract_text(ctx, picked.get("name", file_id), resp.content, picked.get("mime_type", ""))
+    text = await _get_file_text(ctx, file_id, picked)
     return line_window(text, offset, limit)
 
 
@@ -78,11 +110,8 @@ async def impl_write_text_file(ctx, file_id: str, content: str) -> None:
 
 
 async def impl_search_in_text_file(ctx, file_id: str, query: str, case_sensitive: bool) -> list[tuple[int, str]]:
-    acc = await _active_account(ctx)
     picked = await _find_picked_file(ctx, file_id)
-    resp = await drive_download_media(ctx, acc, file_id)
-    resp.raise_for_status()
-    text = await _extract_text(ctx, picked.get("name", file_id), resp.content, picked.get("mime_type", ""))
+    text = await _get_file_text(ctx, file_id, picked)
     return grep_lines(text, query, case_sensitive)
 
 

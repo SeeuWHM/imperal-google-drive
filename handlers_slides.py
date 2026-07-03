@@ -30,7 +30,9 @@ async def _get_full_text(ctx, file_id: str) -> str:
     await _find_picked_file(ctx, file_id)
     resp = await drive_export_text(ctx, acc, file_id)
     resp.raise_for_status()
-    return resp.content.decode("utf-8", errors="replace")
+    # ctx.http returns an SDK HTTPResponse (no .content); export is text/plain
+    # so the body is already decoded text — use .text().
+    return resp.text()
 
 
 async def impl_read_presentation_text(ctx, file_id: str, offset: int, limit: int | None) -> tuple[str, bool, int]:
