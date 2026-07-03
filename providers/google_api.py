@@ -40,8 +40,8 @@ async def drive_list_files(ctx, acc: dict):
 
 async def drive_list_folder(ctx, acc: dict, folder_id: str):
     """List the direct children of a folder the user granted via the Picker.
-    Under drive.file, a granted folder's contents are reachable with the same
-    token, so this enumerates them (files + subfolders) for expansion."""
+    Includes shared-drive params (harmless for My Drive, needed if the folder
+    lives in a shared drive)."""
     acc = await _refresh_token_if_needed(ctx, acc)
     return await ctx.http.get(
         f"{DRIVE_API}/files",
@@ -49,9 +49,43 @@ async def drive_list_folder(ctx, acc: dict, folder_id: str):
             "q": f"'{folder_id}' in parents and trashed=false",
             "fields": "files(id,name,mimeType,modifiedTime,size)",
             "pageSize": 200,
+            "supportsAllDrives": "true",
+            "includeItemsFromAllDrives": "true",
+            "corpora": "allDrives",
         },
         headers=_auth_headers(acc),
     )
+
+
+async def drive_folder_probe(ctx, acc: dict, folder_id: str) -> dict:
+    """DIAGNOSTIC: probe what drive.file can actually see for a picked folder,
+    trying several strategies. Returns a plain dict of raw outcomes so we can
+    tell (empirically) whether drive.file exposes folder contents or not."""
+    acc = await _refresh_token_if_needed(ctx, acc)
+    h = _auth_headers(acc)
+    out: dict = {}
+
+    async def _try(label, params):
+        try:
+            r = await ctx.http.get(f"{DRIVE_API}/files", params=params, headers=h)
+            body = r.json() if r.status_code < 400 else {}
+            out[label] = {"status": r.status_code, "count": len(body.get("files", [])),
+                          "sample": [f.get("name") for f in body.get("files", [])[:5]]}
+        except Exception as e:  # noqa: BLE001
+            out[label] = {"error": type(e).__name__ + ": " + str(e)[:120]}
+
+    await _try("parents_trashedfalse", {"q": f"'{folder_id}' in parents and trashed=false", "fields": "files(id,name,mimeType)", "pageSize": 50})
+    await _try("parents_no_trashed", {"q": f"'{folder_id}' in parents", "fields": "files(id,name,mimeType)", "pageSize": 50})
+    await _try("parents_alldrives", {"q": f"'{folder_id}' in parents and trashed=false", "fields": "files(id,name,mimeType)", "pageSize": 50, "supportsAllDrives": "true", "includeItemsFromAllDrives": "true", "corpora": "allDrives"})
+    # capabilities on the folder itself
+    try:
+        rm = await ctx.http.get(f"{DRIVE_API}/files/{folder_id}",
+                                params={"fields": "id,name,mimeType,capabilities,driveId,ownedByMe,shared"},
+                                headers=h, )
+        out["folder_meta"] = rm.json() if rm.status_code < 400 else {"status": rm.status_code}
+    except Exception as e:  # noqa: BLE001
+        out["folder_meta"] = {"error": type(e).__name__ + ": " + str(e)[:120]}
+    return out
 
 
 async def drive_about(ctx, acc: dict):

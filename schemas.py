@@ -33,6 +33,10 @@ class FolderParams(BaseModel):
     folder_id: str = Field(description="Google Drive folder ID (from list_files) whose contents to list.")
 
 
+class DisconnectFilesParams(BaseModel):
+    file_ids: list[str] = Field(description="File IDs (from list_files) to remove in one bulk action.")
+
+
 # ── CONTENT plane ─────────────────────────────────────────────────────────────
 
 

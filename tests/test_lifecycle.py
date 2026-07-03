@@ -229,24 +229,25 @@ async def test_index_pending_counts_failures(make_ctx, monkeypatch):
     assert await lifecycle.index_pending(ctx) == {"indexed": 1, "failed": 1}
 
 
-async def test_kick_index_fires_long_running_background(make_ctx):
+async def test_forget_files_bulk_parallel(make_ctx, monkeypatch):
     ctx = make_ctx()
-    fired = {}
+    ctx.store.seed(FILES_COLLECTION, [
+        {"file_id": "A", "account_email": "a@b.com", "document_id": 1},
+        {"file_id": "B", "account_email": "a@b.com", "document_id": None},
+        {"file_id": "C", "account_email": "a@b.com", "document_id": 3},
+    ])
+    deleted = []
 
-    async def fake_bg(coro, *, long_running=False, name=""):
-        fired["long_running"] = long_running
-        fired["name"] = name
-        coro.close()  # we never run it here
-        return "task-1"
+    async def fake_delete(ctx, doc_id):
+        deleted.append(doc_id)
+        return True
 
-    ctx.background_task = fake_bg
-    await lifecycle.kick_index(ctx)
-    assert fired == {"long_running": True, "name": "gdrive-index"}
-
-
-async def test_kick_index_noop_without_spawn_hook(make_ctx):
-    ctx = make_ctx()  # FakeCtx has no background_task attr
-    await lifecycle.kick_index(ctx)  # must not raise
+    monkeypatch.setattr(lifecycle.extractor, "delete", fake_delete)
+    n = await lifecycle.forget_files(ctx, ["A", "C", "ZZZ"])  # ZZZ unknown → skipped
+    assert n == 2
+    assert sorted(deleted) == [1, 3]         # only files that had an engine doc
+    remaining = [r["file_id"] for r in ctx.store.rows(FILES_COLLECTION)]
+    assert remaining == ["B"]                # A and C removed, B kept
 
 
 # ── evict_cold ────────────────────────────────────────────────────────────────

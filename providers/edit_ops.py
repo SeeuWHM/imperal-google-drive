@@ -33,13 +33,9 @@ def _is_writable_text(mime: str) -> bool:
     return mime.startswith(_WRITABLE_PREFIXES) or mime in _WRITABLE_EXACT
 
 
-async def _reindex(ctx, acc: dict, rec: dict) -> None:
-    """Refresh the engine cache after a write — best-effort: the edit already
-    succeeded on Google, so a failed re-ingest must not surface as an error."""
-    try:
-        await lifecycle.index_record(ctx, acc, rec)
-    except Exception as e:  # noqa: BLE001
-        log.warning("post-edit re-ingest failed for %s: %s", rec.get("file_id"), e)
+# NOTE: writes DO NOT re-index synchronously (that blocked the write and timed
+# out). The edit returns immediately; the SDK handler fires a BACKGROUND
+# re-index (handlers_index.kick_reindex) so read_file/search stay fresh.
 
 
 # ── Google Docs ───────────────────────────────────────────────────────────────
@@ -92,7 +88,6 @@ async def edit_document(ctx, file_id: str, op: str, *, find_text: str | None = N
     else:
         raise ValueError(f"unknown op {op!r} (use replace | append | overwrite)")
 
-    await _reindex(ctx, acc, rec)
     return result
 
 
@@ -105,7 +100,6 @@ async def edit_spreadsheet(ctx, file_id: str, cell_range: str, values: list) -> 
     rec = await lifecycle.resolve_record(ctx, acc, file_id)
     resp = await sheets_update_values(ctx, acc, file_id, cell_range, values)
     resp.raise_for_status()
-    await _reindex(ctx, acc, rec)
     return {"updated": True, "range": cell_range}
 
 
@@ -137,5 +131,4 @@ async def write_text_file(ctx, file_id: str, content: str) -> dict:
         )
     resp = await drive_upload_media(ctx, acc, file_id, content.encode("utf-8"), mime_type=mime)
     resp.raise_for_status()
-    await _reindex(ctx, acc, rec)
     return {"saved": True}

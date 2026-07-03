@@ -19,6 +19,7 @@ from imperal_sdk.chat.action_result import ActionResult
 
 from app import chat
 from cache_models import PendingPickerSession
+from handlers_index import kick_index
 from providers import lifecycle
 from providers.google_api import drive_list_folder
 from providers.helpers import (
@@ -33,7 +34,7 @@ from providers.helpers import (
     _all_picked_files,
 )
 from providers.token_refresh import _refresh_token_if_needed
-from schemas import EmptyParams, FileIdParams, FolderParams, PickFilesParams, RegisterPickedFilesParams
+from schemas import DisconnectFilesParams, EmptyParams, FileIdParams, FolderParams, PickFilesParams, RegisterPickedFilesParams
 from schemas_sdl import (
     DocFileList,
     EditResult,
@@ -238,7 +239,7 @@ async def fn_register_picked_files(ctx, params: RegisterPickedFilesParams) -> Ac
     try:
         added = await impl_register_picked_files(ctx, params.files)
         if added:
-            await lifecycle.kick_index(ctx)
+            await kick_index(ctx)
         return ActionResult.success(
             data=build_edit_result("+".join(f.file_id for f in params.files) or "none"),
             summary=f"{added} new file(s) registered — indexing started." if added else "No new files (already registered).",
@@ -256,7 +257,7 @@ async def fn_list_files(ctx, params: EmptyParams) -> ActionResult:
     try:
         added = await _claim_pending_picker_session(ctx)
         if added:
-            await lifecycle.kick_index(ctx)   # index just-picked files in the background
+            await kick_index(ctx)   # index just-picked files in the background
         entries = await lifecycle.list_entries(ctx)
         return ActionResult.success(
             data=build_doc_file_list(entries),
@@ -289,5 +290,20 @@ async def fn_disconnect_file(ctx, params: FileIdParams) -> ActionResult:
     try:
         await lifecycle.forget_file(ctx, params.file_id)
         return ActionResult.success(data=build_edit_result(params.file_id, op="disconnect"), summary="File removed.", refresh_panels=["doc_files"])
+    except Exception as e:
+        return ActionResult.error(str(e), retryable=False)
+
+
+@chat.function(
+    "disconnect_files", action_type="write", event="file.disconnected", data_model=EditResult,
+    description="BULK remove several files at once from the connected list and delete their cached indexes (Postgres+Nextcloud), in parallel. The files in Google Drive itself are untouched. Pass the list of file_ids.",
+)
+async def fn_disconnect_files(ctx, params: DisconnectFilesParams) -> ActionResult:
+    try:
+        removed = await lifecycle.forget_files(ctx, params.file_ids)
+        return ActionResult.success(
+            data=build_edit_result("+".join(params.file_ids) or "none", op="disconnect", occurrences_changed=removed),
+            summary=f"Removed {removed} file(s).", refresh_panels=["doc_files"],
+        )
     except Exception as e:
         return ActionResult.error(str(e), retryable=False)

@@ -12,6 +12,7 @@ import logging
 from imperal_sdk.chat.action_result import ActionResult
 
 from app import chat
+from handlers_index import kick_index
 from providers import content_ops, lifecycle
 from schemas import FileIdParams, ReadFileParams, SearchFilesParams
 from schemas_sdl import (
@@ -43,8 +44,8 @@ async def fn_read_file(ctx, params: ReadFileParams) -> ActionResult:
             summary=f"{data['returned_chars']} of {data['total_chars']} char(s){more}.",
         )
     except lifecycle.NotReadyError as e:
-        await lifecycle.kick_index(ctx)   # start (or continue) background indexing
-        return ActionResult.error(str(e), retryable=True)
+        await kick_index(ctx)   # start (or continue) background indexing off the request path
+        return ActionResult.error(str(e), retryable=False)   # show the "preparing, ask again" message
     except Exception as e:
         return ActionResult.error(str(e), retryable=False)
 
@@ -67,8 +68,8 @@ async def fn_search_files(ctx, params: SearchFilesParams) -> ActionResult:
             summary=f"{n} result(s) ({data['mode']})." if n else "No matches found.",
         )
     except lifecycle.NotReadyError as e:
-        await lifecycle.kick_index(ctx)
-        return ActionResult.error(str(e), retryable=True)
+        await kick_index(ctx)
+        return ActionResult.error(str(e), retryable=False)
     except Exception as e:
         return ActionResult.error(str(e), retryable=False)
 

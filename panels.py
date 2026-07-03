@@ -18,6 +18,7 @@ from imperal_sdk import ui
 from app import ext
 from handlers_accounts import impl_list_accounts
 from handlers_connect import _claim_pending_picker_session, impl_open_file_picker
+from handlers_index import kick_index
 from providers import lifecycle
 from providers.helpers import _account_email, _active_account, _all_accounts
 
@@ -122,7 +123,7 @@ async def build_files_panel(ctx, **kwargs) -> ui.UINode:
     try:
         added = await _claim_pending_picker_session(ctx)
         if added:
-            await lifecycle.kick_index(ctx)
+            await kick_index(ctx)
         rows = await impl_list_accounts(ctx)
         active_email = _account_email(await _active_account(ctx))
         entries = await lifecycle.list_entries(ctx)

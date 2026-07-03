@@ -20,7 +20,7 @@ log = logging.getLogger("doc_reader")
 
 ext = Extension(
     "google-drive-connector",
-    version="0.3.0",
+    version="0.3.1",
     display_name="Google Drive Connector",
     description=(
         "Read and edit Google Docs, Google Sheets, and plain text files, and read "

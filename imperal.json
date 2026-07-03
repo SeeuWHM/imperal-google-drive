@@ -2,7 +2,7 @@
   "manifest_schema_version": 3,
   "sdk_version": "5.9.2",
   "app_id": "google-drive-connector",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "name": "Google Drive Connector",
   "description": "Read and edit Google Docs, Google Sheets, and plain text files, and read Google Slides, stored in the user's Google Drive. Nothing is stored on Imperal — content is fetched live and written straight back to the source.",
   "icon": "google-drive-connector.svg",
@@ -19,6 +19,113 @@
       "description": "Google Drive status — connected accounts, picked files, how many are indexed and ready, names, types",
       "scopes": [],
       "parameters": {}
+    },
+    {
+      "name": "index_files",
+      "description": "Index the user's picked Drive files (extract text + build the search index) so they can be read and searched. Runs in the background and indexes files in parallel — you'll get a message when done. Call after picking new files, or if a file reports it's still being prepared.",
+      "action_type": "read",
+      "chain_callable": true,
+      "effects": [],
+      "id_projection": "",
+      "params_schema": {
+        "properties": {},
+        "title": "EmptyParams",
+        "type": "object"
+      },
+      "return_schema": {
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "title": "Id"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "kind": {
+            "default": "index_result",
+            "title": "Kind",
+            "type": "string"
+          },
+          "subtitle": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Subtitle"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Description"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Status"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Url"
+          },
+          "indexed": {
+            "default": 0,
+            "title": "Indexed",
+            "type": "integer"
+          },
+          "failed": {
+            "default": 0,
+            "title": "Failed",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "title"
+        ],
+        "title": "IndexResult",
+        "type": "object",
+        "x-sdl": "entity"
+      },
+      "event": "",
+      "background": true,
+      "long_running": true,
+      "scopes": [],
+      "owner_chat_tool": "tool_doc_reader_chat"
     },
     {
       "name": "connect_google_docs",
@@ -1084,6 +1191,151 @@
           "file_id"
         ],
         "title": "FileIdParams",
+        "type": "object"
+      },
+      "return_schema": {
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "title": "Id"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "kind": {
+            "default": "edit_result",
+            "title": "Kind",
+            "type": "string"
+          },
+          "subtitle": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Subtitle"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Description"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Status"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Url"
+          },
+          "file_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "File Id"
+          },
+          "op": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Op"
+          },
+          "occurrences_changed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Occurrences Changed"
+          }
+        },
+        "required": [
+          "id",
+          "title"
+        ],
+        "title": "EditResult",
+        "type": "object",
+        "x-sdl": "entity"
+      },
+      "event": "file.disconnected",
+      "background": false,
+      "long_running": false,
+      "scopes": [],
+      "owner_chat_tool": "tool_doc_reader_chat"
+    },
+    {
+      "name": "disconnect_files",
+      "description": "BULK remove several files at once from the connected list and delete their cached indexes (Postgres+Nextcloud), in parallel. The files in Google Drive itself are untouched. Pass the list of file_ids.",
+      "action_type": "write",
+      "chain_callable": true,
+      "effects": [],
+      "id_projection": "",
+      "params_schema": {
+        "properties": {
+          "file_ids": {
+            "description": "File IDs (from list_files) to remove in one bulk action.",
+            "items": {
+              "type": "string"
+            },
+            "title": "File Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "file_ids"
+        ],
+        "title": "DisconnectFilesParams",
         "type": "object"
       },
       "return_schema": {
@@ -2948,19 +3200,80 @@
       "owner_chat_tool": "tool_doc_reader_chat"
     },
     {
-      "name": "index_files",
-      "description": "Index the user's picked Drive files (extract text + build the search index) so they can be read and searched. Runs in the background — you'll get a message when it's done. Call after picking new files, or if a file reports it's still being prepared.",
+      "name": "debug_folder",
+      "description": "Diagnostic: probe what the drive.file grant can actually see inside a folder (multiple strategies + folder capabilities). Temporary tool for debugging folder access.",
       "action_type": "read",
       "chain_callable": true,
       "effects": [],
       "id_projection": "",
       "params_schema": {
-        "properties": {},
-        "title": "EmptyParams",
+        "properties": {
+          "folder_id": {
+            "description": "Google Drive folder ID (from list_files) whose contents to list.",
+            "title": "Folder Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "folder_id"
+        ],
+        "title": "FolderParams",
         "type": "object"
       },
       "return_schema": {
         "properties": {
+          "excerpt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Excerpt",
+            "x-sdl-role": "content.excerpt"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Summary",
+            "x-sdl-role": "content.summary"
+          },
+          "word_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Word Count",
+            "x-sdl-role": "content.word_count"
+          },
+          "reading_time_s": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Reading Time S",
+            "x-sdl-role": "content.reading_time_s"
+          },
           "id": {
             "anyOf": [
               {
@@ -2977,7 +3290,7 @@
             "type": "string"
           },
           "kind": {
-            "default": "index_result",
+            "default": "file_overview",
             "title": "Kind",
             "type": "string"
           },
@@ -3029,28 +3342,54 @@
             "default": null,
             "title": "Url"
           },
-          "indexed": {
-            "default": 0,
-            "title": "Indexed",
-            "type": "integer"
+          "file_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "File Id"
           },
-          "failed": {
-            "default": 0,
-            "title": "Failed",
-            "type": "integer"
+          "mime_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Mime Type"
+          },
+          "size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Size Bytes"
           }
         },
         "required": [
           "id",
           "title"
         ],
-        "title": "IndexResult",
+        "title": "FileOverview",
         "type": "object",
         "x-sdl": "entity"
       },
       "event": "",
-      "background": true,
-      "long_running": true,
+      "background": false,
+      "long_running": false,
       "scopes": [],
       "owner_chat_tool": "tool_doc_reader_chat"
     }

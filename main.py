@@ -24,7 +24,7 @@ _MODULES = (
     "providers.extractor", "providers.file_types", "providers.lifecycle",
     "providers.content_ops", "providers.edit_ops",
     "handlers_connect", "handlers_accounts", "handlers_content",
-    "handlers_edit", "handlers_index", "skeleton", "panels",
+    "handlers_edit", "handlers_index", "handlers_debug", "skeleton", "panels",
 )
 for _m in [k for k in sys.modules if k in _MODULES]:
     del sys.modules[_m]
@@ -42,5 +42,6 @@ import handlers_accounts  # noqa: E402, F401
 import handlers_content   # noqa: E402, F401
 import handlers_edit      # noqa: E402, F401
 import handlers_index     # noqa: E402, F401
+import handlers_debug     # noqa: E402, F401  (TEMPORARY folder-access probe)
 import skeleton           # noqa: E402, F401
 import panels             # noqa: E402, F401

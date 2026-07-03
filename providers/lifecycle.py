@@ -17,6 +17,7 @@ the background, at pick time / self-heal), reads just fetch stored text.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 
@@ -51,6 +52,7 @@ MAX_DOCS = 200
 MAX_BYTES = 1024 * 1024 * 1024          # 1 GiB per account
 MAX_PER_PICK = 25
 WARN_FILE_BYTES = 50 * 1024 * 1024      # 50 MiB — soft warn on a single big file
+_INDEX_CONCURRENCY = 4                  # parallel ingests (gentle on the 2-worker engine)
 
 
 def _now() -> float:
@@ -152,33 +154,31 @@ async def ensure_ready(ctx, acc: dict, rec: dict) -> int:
 
 
 async def index_pending(ctx) -> dict:
-    """Background job: index every not-yet-ready file of the ACTIVE account.
-    Returns {"indexed", "failed"}. Idempotent (content_key cache) — safe to run
-    repeatedly / concurrently; a cached file costs almost nothing. One bad file
-    never stops the batch."""
+    """Background job: index every not-yet-ready file of the ACTIVE account, in
+    PARALLEL (bounded by _INDEX_CONCURRENCY). Idempotent (content_key cache) —
+    safe to run repeatedly/concurrently; a cached file costs almost nothing.
+    One bad file never stops the batch."""
     acc = await _active_account(ctx)
+    acc = await _refresh_token_if_needed(ctx, acc)  # refresh once, shared across the batch
     email = _account_email(acc)
-    indexed = failed = 0
-    for rec in await _all_picked_files(ctx, email):
-        if rec.get("mime_type") == GOOGLE_FOLDER_MIME:
-            continue  # folders aren't readable files
-        if rec.get("status") == READY and rec.get("document_id"):
-            continue
-        try:
-            await index_record(ctx, acc, rec)
-            indexed += 1
-        except Exception:  # noqa: BLE001
-            failed += 1
-    return {"indexed": indexed, "failed": failed}
+    targets = [
+        r for r in await _all_picked_files(ctx, email)
+        if r.get("mime_type") != GOOGLE_FOLDER_MIME  # folders aren't readable files
+        and not (r.get("status") == READY and r.get("document_id"))
+    ]
+    sem = asyncio.Semaphore(_INDEX_CONCURRENCY)
 
+    async def _one(rec) -> bool:
+        async with sem:
+            try:
+                await index_record(ctx, acc, rec)
+                return True
+            except Exception:  # noqa: BLE001
+                return False
 
-async def kick_index(ctx) -> None:
-    """Fire-and-forget: start the background indexer if this context allows it
-    (no-op in dev/test where ctx has no spawn hook)."""
-    try:
-        await ctx.background_task(index_pending(ctx), long_running=True, name="gdrive-index")
-    except Exception as e:  # noqa: BLE001
-        log.warning("could not start background index: %s", e)
+    results = await asyncio.gather(*(_one(r) for r in targets))
+    indexed = sum(1 for ok in results if ok)
+    return {"indexed": indexed, "failed": len(results) - indexed}
 
 
 # ── Records ───────────────────────────────────────────────────────────────────
@@ -235,29 +235,34 @@ async def forget_file(ctx, file_id: str) -> None:
     match = next((f for f in files if f.get("file_id") == file_id), None)
     if not match:
         raise RuntimeError(f"File {file_id!r} is not in the connected files list.")
-    doc_id = match.get("document_id")
+    await _forget_one(ctx, match)
+
+
+async def _forget_one(ctx, f: dict) -> None:
+    doc_id = f.get("document_id")
     if doc_id:
         try:
-            await extractor.delete(ctx, doc_id)
+            await extractor.delete(ctx, doc_id)  # engine (PG+NC), best-effort
         except Exception:  # noqa: BLE001
             pass
-    await ctx.store.delete(FILES_COLLECTION, match["doc_id"])
+    await ctx.store.delete(FILES_COLLECTION, f["doc_id"])
+
+
+async def forget_files(ctx, file_ids: list[str]) -> int:
+    """BULK disconnect: remove many files (panel records + engine docs) in
+    parallel. Unknown ids are skipped. Returns the count removed."""
+    by_id = {f["file_id"]: f for f in await _all_picked_files(ctx)}
+    targets = [by_id[fid] for fid in file_ids if fid in by_id]
+    await asyncio.gather(*(_forget_one(ctx, f) for f in targets))
+    return len(targets)
 
 
 async def forget_account_files(ctx, account_email: str) -> int:
     """Delete every engine doc + store record for an account's files (used on
-    account disconnect). Returns the count removed."""
-    removed = 0
-    for f in await _all_picked_files(ctx, account_email):
-        doc_id = f.get("document_id")
-        if doc_id:
-            try:
-                await extractor.delete(ctx, doc_id)
-            except Exception:  # noqa: BLE001
-                pass
-        await ctx.store.delete(FILES_COLLECTION, f["doc_id"])
-        removed += 1
-    return removed
+    account disconnect), in parallel. Returns the count removed."""
+    files = await _all_picked_files(ctx, account_email)
+    await asyncio.gather(*(_forget_one(ctx, f) for f in files))
+    return len(files)
 
 
 async def list_entries(ctx) -> list[dict]:
