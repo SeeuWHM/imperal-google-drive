@@ -198,3 +198,16 @@ async def sheets_update_values(ctx, acc: dict, spreadsheet_id: str, cell_range: 
         headers=_auth_headers(acc),
         json={"values": values},
     )
+
+
+async def sheets_append_values(ctx, acc: dict, spreadsheet_id: str, cell_range: str, values: list[list]):
+    """Append rows AFTER the existing data in a sheet — Sheets finds the table
+    and inserts new rows, so the caller doesn't have to compute the target row.
+    `cell_range` just names the sheet/table to append into (e.g. a sheet name)."""
+    acc = await _refresh_token_if_needed(ctx, acc)
+    return await ctx.http.post(
+        f"{SHEETS_API}/spreadsheets/{spreadsheet_id}/values/{cell_range}:append",
+        params={"valueInputOption": "USER_ENTERED", "insertDataOption": "INSERT_ROWS"},
+        headers=_auth_headers(acc),
+        json={"values": values},
+    )

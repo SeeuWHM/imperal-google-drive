@@ -116,6 +116,62 @@ async def test_spreadsheet_compute_exact(patched, make_ctx, monkeypatch):
     assert out["result"] == 6 and out["cell_count"] == 3
 
 
+# ── structured Sheets access (needed to edit correctly) ───────────────────────
+
+
+async def test_get_spreadsheet_info(patched, make_ctx, monkeypatch):
+    async def fake_meta(ctx, acc, file_id):
+        return _ok({"sheets": [{"properties": {"title": "Companies", "gridProperties": {"rowCount": 100, "columnCount": 8}}}]})
+
+    monkeypatch.setattr(edit_ops, "sheets_get_metadata", fake_meta)
+    out = await edit_ops.get_spreadsheet_info(make_ctx(), "S1")
+    assert out == [{"name": "Companies", "row_count": 100, "column_count": 8}]
+
+
+async def test_read_spreadsheet_range(patched, make_ctx, monkeypatch):
+    async def fake_get(ctx, acc, file_id, cell_range):
+        return _ok({"values": [["a", "b"], ["c"]]})
+
+    monkeypatch.setattr(edit_ops, "sheets_get_values", fake_get)
+    out = await edit_ops.read_spreadsheet_range(make_ctx(), "S1", "Sheet1!A1:B2")
+    assert out == [["a", "b"], ["c"]]
+
+
+async def test_append_rows_defaults_to_first_sheet(patched, make_ctx, monkeypatch):
+    seen = {}
+
+    async def fake_meta(ctx, acc, file_id):
+        return _ok({"sheets": [{"properties": {"title": "Companies"}}]})
+
+    async def fake_append(ctx, acc, file_id, cell_range, values):
+        seen["range"] = cell_range
+        seen["values"] = values
+        return _ok({})
+
+    monkeypatch.setattr(edit_ops, "sheets_get_metadata", fake_meta)
+    monkeypatch.setattr(edit_ops, "sheets_append_values", fake_append)
+    n = await edit_ops.append_spreadsheet_rows(make_ctx(), "S1", [["JUCARII.MD", "https://jucarii.md/"]])
+    assert n == 1
+    assert seen["range"] == "Companies"   # resolved to the first sheet
+    assert seen["values"] == [["JUCARII.MD", "https://jucarii.md/"]]
+
+
+async def test_append_rows_explicit_range_skips_metadata(patched, make_ctx, monkeypatch):
+    seen = {}
+
+    async def fake_append(ctx, acc, file_id, cell_range, values):
+        seen["range"] = cell_range
+        return _ok({})
+
+    def boom(*a, **k):
+        raise AssertionError("must not fetch metadata when a range is given")
+
+    monkeypatch.setattr(edit_ops, "sheets_get_metadata", boom)
+    monkeypatch.setattr(edit_ops, "sheets_append_values", fake_append)
+    n = await edit_ops.append_spreadsheet_rows(make_ctx(), "S1", [["x"]], cell_range="Sheet2")
+    assert n == 1 and seen["range"] == "Sheet2"
+
+
 # ── write_text_file ───────────────────────────────────────────────────────────
 
 

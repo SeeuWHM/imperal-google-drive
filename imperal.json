@@ -2,7 +2,7 @@
   "manifest_schema_version": 3,
   "sdk_version": "5.9.2",
   "app_id": "google-drive-connector",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "name": "Google Drive Connector",
   "description": "Read and edit Google Docs, Google Sheets, and plain text files, and read Google Slides, stored in the user's Google Drive. Nothing is stored on Imperal — content is fetched live and written straight back to the source.",
   "icon": "google-drive-connector.svg",
@@ -2757,6 +2757,458 @@
           "values"
         ],
         "title": "EditSpreadsheetParams",
+        "type": "object"
+      },
+      "return_schema": {
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "title": "Id"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "kind": {
+            "default": "edit_result",
+            "title": "Kind",
+            "type": "string"
+          },
+          "subtitle": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Subtitle"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Description"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Status"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Url"
+          },
+          "file_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "File Id"
+          },
+          "op": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Op"
+          },
+          "occurrences_changed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Occurrences Changed"
+          }
+        },
+        "required": [
+          "id",
+          "title"
+        ],
+        "title": "EditResult",
+        "type": "object",
+        "x-sdl": "entity"
+      },
+      "event": "file.edited",
+      "background": false,
+      "long_running": false,
+      "scopes": [],
+      "owner_chat_tool": "tool_doc_reader_chat"
+    },
+    {
+      "name": "get_spreadsheet_info",
+      "description": "List a Google Sheet's tab names and dimensions (rows/columns). Call this FIRST when you need to read a specific range or figure out where to write/append — there's no way to guess the sheet name or size otherwise.",
+      "action_type": "read",
+      "chain_callable": true,
+      "effects": [],
+      "id_projection": "",
+      "params_schema": {
+        "properties": {
+          "file_id": {
+            "description": "Google Drive file ID (from list_files).",
+            "title": "File Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file_id"
+        ],
+        "title": "FileIdParams",
+        "type": "object"
+      },
+      "return_schema": {
+        "description": "A Google Sheet's tab names + dimensions — structured access for editing.",
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "title": "Id"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "kind": {
+            "default": "spreadsheet_info",
+            "title": "Kind",
+            "type": "string"
+          },
+          "subtitle": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Subtitle"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Description"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Status"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Url"
+          },
+          "file_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "File Id"
+          },
+          "sheets": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Sheets",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "title"
+        ],
+        "title": "SpreadsheetInfo",
+        "type": "object",
+        "x-sdl": "entity"
+      },
+      "event": "",
+      "background": false,
+      "long_running": false,
+      "scopes": [],
+      "owner_chat_tool": "tool_doc_reader_chat"
+    },
+    {
+      "name": "read_spreadsheet_range",
+      "description": "Read a range of cells from a Google Sheet (A1 notation, e.g. 'Sheet1!A1:D20', or a bare sheet name for the whole sheet). Returns the raw 2D values — structured access for understanding the layout before editing/appending.",
+      "action_type": "read",
+      "chain_callable": true,
+      "effects": [],
+      "id_projection": "",
+      "params_schema": {
+        "properties": {
+          "file_id": {
+            "description": "Google Sheets file ID.",
+            "title": "File Id",
+            "type": "string"
+          },
+          "cell_range": {
+            "description": "A1 notation range, e.g. 'Sheet1!A1:D20', or a bare sheet name for the whole sheet.",
+            "title": "Cell Range",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file_id",
+          "cell_range"
+        ],
+        "title": "ReadSpreadsheetParams",
+        "type": "object"
+      },
+      "return_schema": {
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "title": "Id"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "kind": {
+            "default": "spreadsheet_range",
+            "title": "Kind",
+            "type": "string"
+          },
+          "subtitle": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Subtitle"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Description"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Status"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Url"
+          },
+          "file_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "File Id"
+          },
+          "cell_range": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Cell Range"
+          },
+          "row_count": {
+            "default": 0,
+            "title": "Row Count",
+            "type": "integer"
+          },
+          "values": {
+            "items": {
+              "items": {},
+              "type": "array"
+            },
+            "title": "Values",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "title"
+        ],
+        "title": "SpreadsheetRange",
+        "type": "object",
+        "x-sdl": "entity"
+      },
+      "event": "",
+      "background": false,
+      "long_running": false,
+      "scopes": [],
+      "owner_chat_tool": "tool_doc_reader_chat"
+    },
+    {
+      "name": "append_spreadsheet_rows",
+      "description": "Append new rows AFTER the existing data in a Google Sheet — it auto-finds the table, so you DON'T need to compute the target range. Use this to ADD records/rows (e.g. new companies). Defaults to the first sheet; pass a sheet name to target another tab.",
+      "action_type": "write",
+      "chain_callable": true,
+      "effects": [],
+      "id_projection": "",
+      "params_schema": {
+        "properties": {
+          "file_id": {
+            "description": "Google Sheets file ID.",
+            "title": "File Id",
+            "type": "string"
+          },
+          "rows": {
+            "description": "Rows to append AFTER the existing data (row-major 2D array). Use for adding new records.",
+            "items": {
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "cell_range": {
+            "default": "",
+            "description": "Optional sheet/table name to append into. Omit to append to the first sheet.",
+            "title": "Cell Range",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file_id",
+          "rows"
+        ],
+        "title": "AppendRowsParams",
         "type": "object"
       },
       "return_schema": {

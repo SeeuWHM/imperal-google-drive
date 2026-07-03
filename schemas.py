@@ -81,6 +81,17 @@ class WriteTextParams(BaseModel):
     content: str = Field(description="New full content — replaces everything currently in the file.")
 
 
+class ReadSpreadsheetParams(BaseModel):
+    file_id: str = Field(description="Google Sheets file ID.")
+    cell_range: str = Field(description="A1 notation range, e.g. 'Sheet1!A1:D20', or a bare sheet name for the whole sheet.")
+
+
+class AppendRowsParams(BaseModel):
+    file_id: str = Field(description="Google Sheets file ID.")
+    rows: list[list[str | int | float | bool | None]] = Field(description="Rows to append AFTER the existing data (row-major 2D array). Use for adding new records.")
+    cell_range: str = Field(default="", description="Optional sheet/table name to append into. Omit to append to the first sheet.")
+
+
 # ── Picker registration fallback ──────────────────────────────────────────────
 
 

@@ -15,12 +15,24 @@ from app import chat
 from handlers_index import kick_reindex
 from providers import edit_ops
 from schemas import (
+    AppendRowsParams,
     EditDocumentParams,
     EditSpreadsheetParams,
+    FileIdParams,
+    ReadSpreadsheetParams,
     SpreadsheetComputeParams,
     WriteTextParams,
 )
-from schemas_sdl import ComputeResult, EditResult, build_compute_result, build_edit_result
+from schemas_sdl import (
+    ComputeResult,
+    EditResult,
+    SpreadsheetInfo,
+    SpreadsheetRange,
+    build_compute_result,
+    build_edit_result,
+    build_spreadsheet_info,
+    build_spreadsheet_range,
+)
 
 log = logging.getLogger("doc_reader")
 
@@ -71,6 +83,59 @@ async def fn_edit_spreadsheet(ctx, params: EditSpreadsheetParams) -> ActionResul
         return ActionResult.success(
             data=build_edit_result(params.file_id, op="edit_spreadsheet"),
             summary=f"Range {params.cell_range} updated.", refresh_panels=["doc_files"],
+        )
+    except Exception as e:
+        return ActionResult.error(str(e), retryable=False)
+
+
+@chat.function(
+    "get_spreadsheet_info", action_type="read", data_model=SpreadsheetInfo,
+    description=(
+        "List a Google Sheet's tab names and dimensions (rows/columns). Call this FIRST when you need "
+        "to read a specific range or figure out where to write/append — there's no way to guess the "
+        "sheet name or size otherwise."
+    ),
+)
+async def fn_get_spreadsheet_info(ctx, params: FileIdParams) -> ActionResult:
+    try:
+        sheets = await edit_ops.get_spreadsheet_info(ctx, params.file_id)
+        summary = (f"{len(sheets)} sheet(s): " + ", ".join(s["name"] for s in sheets)) if sheets else "No sheets found."
+        return ActionResult.success(data=build_spreadsheet_info(params.file_id, sheets), summary=summary)
+    except Exception as e:
+        return ActionResult.error(str(e), retryable=False)
+
+
+@chat.function(
+    "read_spreadsheet_range", action_type="read", data_model=SpreadsheetRange,
+    description=(
+        "Read a range of cells from a Google Sheet (A1 notation, e.g. 'Sheet1!A1:D20', or a bare sheet "
+        "name for the whole sheet). Returns the raw 2D values — structured access for understanding the "
+        "layout before editing/appending."
+    ),
+)
+async def fn_read_spreadsheet_range(ctx, params: ReadSpreadsheetParams) -> ActionResult:
+    try:
+        values = await edit_ops.read_spreadsheet_range(ctx, params.file_id, params.cell_range)
+        return ActionResult.success(data=build_spreadsheet_range(params.file_id, params.cell_range, values), summary=f"{len(values)} row(s).")
+    except Exception as e:
+        return ActionResult.error(str(e), retryable=False)
+
+
+@chat.function(
+    "append_spreadsheet_rows", action_type="write", event="file.edited", data_model=EditResult,
+    description=(
+        "Append new rows AFTER the existing data in a Google Sheet — it auto-finds the table, so you "
+        "DON'T need to compute the target range. Use this to ADD records/rows (e.g. new companies). "
+        "Defaults to the first sheet; pass a sheet name to target another tab."
+    ),
+)
+async def fn_append_spreadsheet_rows(ctx, params: AppendRowsParams) -> ActionResult:
+    try:
+        n = await edit_ops.append_spreadsheet_rows(ctx, params.file_id, params.rows, params.cell_range)
+        await kick_reindex(ctx, params.file_id)
+        return ActionResult.success(
+            data=build_edit_result(params.file_id, op="append_rows", occurrences_changed=n),
+            summary=f"Appended {n} row(s).", refresh_panels=["doc_files"],
         )
     except Exception as e:
         return ActionResult.error(str(e), retryable=False)

@@ -108,6 +108,21 @@ class IndexResult(sdl.Entity):
     failed: int = 0
 
 
+class SpreadsheetInfo(sdl.Entity):
+    """A Google Sheet's tab names + dimensions — structured access for editing."""
+    kind: str = "spreadsheet_info"
+    file_id: str | None = None
+    sheets: list[dict] = Field(default_factory=list)
+
+
+class SpreadsheetRange(sdl.Entity):
+    kind: str = "spreadsheet_range"
+    file_id: str | None = None
+    cell_range: str | None = None
+    row_count: int = 0
+    values: list[list] = Field(default_factory=list)
+
+
 # ── Accounts ───────────────────────────────────────────────────────────────────
 
 
@@ -226,6 +241,17 @@ def build_compute_result(data: dict) -> ComputeResult:
 
 def build_index_result(indexed: int, failed: int) -> IndexResult:
     return IndexResult(id="index", title=f"Indexed {indexed} file(s)", indexed=indexed, failed=failed)
+
+
+def build_spreadsheet_info(file_id: str, sheets: list[dict]) -> SpreadsheetInfo:
+    return SpreadsheetInfo(id=file_id, title=f"Sheets in {file_id}", file_id=file_id, sheets=sheets)
+
+
+def build_spreadsheet_range(file_id: str, cell_range: str, values: list[list]) -> SpreadsheetRange:
+    return SpreadsheetRange(
+        id=f"{file_id}:{cell_range}", title=f"{file_id} {cell_range}",
+        file_id=file_id, cell_range=cell_range, row_count=len(values), values=values,
+    )
 
 
 def build_account_item(acc: dict, file_count: int) -> AccountItem:

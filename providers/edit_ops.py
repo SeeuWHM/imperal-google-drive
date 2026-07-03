@@ -17,6 +17,8 @@ from .google_api import (
     docs_get,
     document_end_index,
     drive_upload_media,
+    sheets_append_values,
+    sheets_get_metadata,
     sheets_get_values,
     sheets_update_values,
 )
@@ -113,6 +115,50 @@ async def spreadsheet_compute(ctx, file_id: str, cell_range: str, operation: str
     values = resp.json().get("values", [])
     result, count = compute_aggregate(values, operation)
     return {"operation": operation, "range": cell_range, "result": result, "cell_count": count}
+
+
+async def _first_sheet_name(ctx, acc, file_id: str) -> str:
+    resp = await sheets_get_metadata(ctx, acc, file_id)
+    resp.raise_for_status()
+    sheets = resp.json().get("sheets", [])
+    return sheets[0]["properties"]["title"] if sheets else "Sheet1"
+
+
+async def get_spreadsheet_info(ctx, file_id: str) -> list[dict]:
+    """Tab names + dimensions — needed before addressing a range by name or
+    deciding where to append."""
+    acc = await _active_account(ctx)
+    await lifecycle.resolve_record(ctx, acc, file_id)  # auth
+    resp = await sheets_get_metadata(ctx, acc, file_id)
+    resp.raise_for_status()
+    out = []
+    for s in resp.json().get("sheets", []):
+        props = s.get("properties", {})
+        grid = props.get("gridProperties", {})
+        out.append({"name": props.get("title", "?"),
+                    "row_count": grid.get("rowCount", 0),
+                    "column_count": grid.get("columnCount", 0)})
+    return out
+
+
+async def read_spreadsheet_range(ctx, file_id: str, cell_range: str) -> list[list]:
+    """Raw cell values for an A1 range (structured, not the text dump)."""
+    acc = await _active_account(ctx)
+    await lifecycle.resolve_record(ctx, acc, file_id)  # auth
+    resp = await sheets_get_values(ctx, acc, file_id, cell_range)
+    resp.raise_for_status()
+    return resp.json().get("values", [])
+
+
+async def append_spreadsheet_rows(ctx, file_id: str, rows: list, cell_range: str = "") -> int:
+    """Append rows AFTER the existing data — no need to compute the target row.
+    Defaults to the first sheet."""
+    acc = await _active_account(ctx)
+    await lifecycle.resolve_record(ctx, acc, file_id)  # auth
+    target = cell_range or await _first_sheet_name(ctx, acc, file_id)
+    resp = await sheets_append_values(ctx, acc, file_id, target, rows)
+    resp.raise_for_status()
+    return len(rows)
 
 
 # ── Plain text files ──────────────────────────────────────────────────────────
