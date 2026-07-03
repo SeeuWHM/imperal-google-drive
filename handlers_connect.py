@@ -13,6 +13,7 @@ from app import chat
 from cache_models import PendingPickerSession
 from providers.helpers import (
     FILES_COLLECTION,
+    GOOGLE_FOLDER_MIME,
     PICKER_CLAIM_URL,
     PICKER_PAGE_URL,
     PICKER_STAGE_TOKEN_URL,
@@ -147,16 +148,20 @@ async def _claim_pending_picker_session(ctx) -> int:
 
 
 async def impl_list_connected_files(ctx) -> list[dict]:
-    """Claims any pending Picker session first (so a file the user just
-    picked shows up immediately), then live-reconciles against Google — a
-    file the user deleted or unshared from the app on Google's side will
-    already be pruned from the result."""
+    """FAST path: claim any pending Picker session (so a just-picked file
+    shows up), then return the active account's picked files straight from the
+    store — NO live Drive reconcile per call. The old per-call reconcile
+    (drive.files.list + folder expansion) cost ~10s of Drive API EVERY turn.
+    A file the user deleted/unshared on Google is caught at read time (the
+    read fails with a clear reason) instead of by that costly per-turn scan.
+    Folder records aren't readable files themselves, so they're not listed."""
     await _claim_pending_picker_session(ctx)
     accounts = await _all_accounts(ctx)
     if not accounts:
         return []
     acc = await _active_account(ctx)
-    return await connected_files(ctx, acc)
+    files = await _all_picked_files(ctx, _account_email(acc))
+    return [f for f in files if f.get("mime_type") != GOOGLE_FOLDER_MIME]
 
 
 async def impl_register_picked_files(ctx, files: list) -> int:
