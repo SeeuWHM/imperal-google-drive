@@ -1,14 +1,13 @@
 """Google Drive · Files panel (right slot).
 
-Two blocks, so the user can always see WHICH Google account they're in and
-switch between accounts, each with its OWN pool of picked files:
+Two blocks:
   1. Accounts — connected Google accounts, ✓ active one, click to switch,
-     per-account file count, "Add Google account" (login) button.
-  2. Files — the ACTIVE account's picked files + a "Pick files" button that
-     opens the Google Picker for that account (on request, like login).
+     per-account item count, "Add Google account".
+  2. Files & folders — the ACTIVE account's picked items with their indexing
+     status; folders open their contents (open_folder); files can be removed.
 
-Rendering also claims any pending Picker session (via impl_list_connected_files),
-so files just picked in the popup show up on the next render, no manual step.
+Rendering also claims any pending Picker session and kicks background indexing,
+so just-picked files show up (as "pending" → "ready") without a manual step.
 """
 from __future__ import annotations
 
@@ -18,16 +17,17 @@ from imperal_sdk import ui
 
 from app import ext
 from handlers_accounts import impl_list_accounts
-from handlers_connect import impl_list_connected_files, impl_open_file_picker
+from handlers_connect import _claim_pending_picker_session, impl_open_file_picker
+from providers import lifecycle
 from providers.helpers import _account_email, _active_account, _all_accounts
 
 log = logging.getLogger("doc_reader")
-
 
 _MIME_LABELS = {
     "application/vnd.google-apps.document": "DOC",
     "application/vnd.google-apps.spreadsheet": "SHEET",
     "application/vnd.google-apps.presentation": "SLIDES",
+    "application/vnd.google-apps.folder": "FOLDER",
     "application/pdf": "PDF",
     "text/plain": "TXT",
     "text/csv": "CSV",
@@ -37,10 +37,11 @@ _MIME_LABELS = {
     "application/vnd.openxmlformats-officedocument.presentationml.presentation": "PPTX",
 }
 
+# Keep to colours the existing panel used (green/blue/red) — safe across themes.
+_STATUS_COLOR = {"ready": "green", "failed": "red"}
+
 
 def _type_label(name: str, mime_type: str) -> str:
-    """Google-native files (Docs/Sheets/Slides) have no extension in their
-    name, so fall back from mime type. Real files keep their extension."""
     if mime_type in _MIME_LABELS:
         return _MIME_LABELS[mime_type]
     if "." in name:
@@ -67,7 +68,7 @@ def _account_items(rows: list, active_email: str) -> list:
     for acc, count in rows:
         email = acc.get("email") or acc.get("doc_id") or "?"
         is_active = email == active_email
-        subtitle = f"{count} file(s)"
+        subtitle = f"{count} item(s)"
         if is_active:
             subtitle = f"✓ Active — {subtitle}"
         items.append(ui.ListItem(
@@ -81,16 +82,26 @@ def _account_items(rows: list, active_email: str) -> list:
     return items
 
 
-def _file_items(files: list) -> list:
+def _entry_items(entries: list) -> list:
     items = []
-    for f in files:
+    for f in entries:
         name = f.get("name", "?")
+        if f.get("is_folder"):
+            items.append(ui.ListItem(
+                id=f["file_id"], title=name, subtitle="Folder — open to see contents",
+                badge=ui.Badge("FOLDER", color="blue"),
+                on_click=ui.Call("open_folder", folder_id=f["file_id"]),
+                actions=[{"label": "Remove", "icon": "Trash2",
+                          "on_click": ui.Call("disconnect_file", file_id=f["file_id"])}],
+            ))
+            continue
         ext_label = _type_label(name, f.get("mime_type", ""))
         size_label = _human_size(f.get("size_bytes"))
+        status = f.get("status") or "pending"
         items.append(ui.ListItem(
             id=f["file_id"], title=name,
-            subtitle=" · ".join(p for p in (ext_label, size_label) if p),
-            badge=ui.Badge(ext_label, color="blue"),
+            subtitle=" · ".join(p for p in (ext_label, size_label, status) if p),
+            badge=ui.Badge(status, color=_STATUS_COLOR.get(status, "blue")),
             actions=[{"label": "Remove", "icon": "Trash2",
                       "on_click": ui.Call("disconnect_file", file_id=f["file_id"])}],
         ))
@@ -109,9 +120,12 @@ async def build_files_panel(ctx, **kwargs) -> ui.UINode:
         ], gap=2)
 
     try:
-        rows = await impl_list_accounts(ctx)              # [(acc, file_count)]
+        added = await _claim_pending_picker_session(ctx)
+        if added:
+            await lifecycle.kick_index(ctx)
+        rows = await impl_list_accounts(ctx)
         active_email = _account_email(await _active_account(ctx))
-        files = await impl_list_connected_files(ctx)      # active account's pool (also claims picker)
+        entries = await lifecycle.list_entries(ctx)
     except Exception as exc:
         log.error(f"doc_files panel error: {exc}")
         return ui.Stack([
@@ -120,13 +134,10 @@ async def build_files_panel(ctx, **kwargs) -> ui.UINode:
         ], gap=2)
 
     files_block = (
-        ui.List(items=_file_items(files), searchable=True) if files
+        ui.List(items=_entry_items(entries), searchable=True) if entries
         else ui.Empty(message="No files picked for this account yet", icon="FileText")
     )
 
-    # Stage a fresh picker token and open the picker page in a new tab on click.
-    # ui.Open reliably opens a URL; ui.Call returns the URL but the platform does
-    # not auto-open it. Falls back to a warning if a token can't be staged.
     try:
         picker_url = await impl_open_file_picker(ctx, account=active_email)
         pick_btn = ui.Button("Pick files from Drive", icon="Plus", variant="primary",

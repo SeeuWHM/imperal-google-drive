@@ -18,7 +18,7 @@ async def drive_get_metadata(ctx, acc: dict, file_id: str):
     acc = await _refresh_token_if_needed(ctx, acc)
     return await ctx.http.get(
         f"{DRIVE_API}/files/{file_id}",
-        params={"fields": "id,name,mimeType,modifiedTime,size"},
+        params={"fields": "id,name,mimeType,modifiedTime,size,md5Checksum,headRevisionId"},
         headers=_auth_headers(acc),
     )
 

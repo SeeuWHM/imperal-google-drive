@@ -1,4 +1,11 @@
-"""Pydantic parameter models for @chat.function handlers."""
+"""Pydantic parameter models for @chat.function handlers (unified toolset).
+
+Two planes:
+  CONTENT (read/understand any file) — FileIdParams, ReadFileParams, SearchFilesParams
+  ACTION  (change/compute)           — EditDocumentParams, EditSpreadsheetParams,
+                                       SpreadsheetComputeParams, WriteTextParams
+Plus account / picker / folder management params.
+"""
 from __future__ import annotations
 
 from typing import Literal
@@ -11,53 +18,66 @@ class EmptyParams(BaseModel):
 
 
 class FileIdParams(BaseModel):
-    file_id: str = Field(description="Google Drive file ID (from list_connected_files).")
+    file_id: str = Field(description="Google Drive file ID (from list_files).")
 
 
-class ReadRangeParams(BaseModel):
-    file_id: str = Field(description="Google Drive file ID.")
-    offset: int = Field(default=0, description="0-based starting line number.")
-    limit: int | None = Field(default=None, description="Max number of lines to return. Omit to read to the end.")
+class AccountParam(BaseModel):
+    account: str = Field(description="Which connected Google account — its email (from list_accounts).")
 
 
-class SearchParams(BaseModel):
-    file_id: str = Field(description="Google Drive file ID.")
-    query: str = Field(description="Text to search for (case-insensitive by default).")
-    case_sensitive: bool = Field(default=False, description="Match case exactly.")
+class PickFilesParams(BaseModel):
+    account: str = Field(default="", description="Which connected Google account to pick files for (email). Omit to use the active account.")
 
 
-class ReplaceTextParams(BaseModel):
+class FolderParams(BaseModel):
+    folder_id: str = Field(description="Google Drive folder ID (from list_files) whose contents to list.")
+
+
+# ── CONTENT plane ─────────────────────────────────────────────────────────────
+
+
+class ReadFileParams(BaseModel):
+    file_id: str = Field(description="Google Drive file ID (from list_files). Any type — Doc, Sheet, Slides, PDF, PPTX, DOCX, XLSX, text.")
+    offset: int = Field(default=0, description="0-based character offset to start reading from.")
+    limit: int | None = Field(default=None, description="Max characters to return. Omit for a sensible default window (use offset to page a long file, or search_files to jump to the relevant part).")
+
+
+class SearchFilesParams(BaseModel):
+    query: str = Field(description="What to look for.")
+    file_id: str = Field(default="", description="Optional: restrict to ONE file (exact substring search in that file). Omit to search across ALL your files by meaning (semantic).")
+
+
+# ── ACTION plane ──────────────────────────────────────────────────────────────
+
+
+class EditDocumentParams(BaseModel):
     file_id: str = Field(description="Google Doc file ID.")
-    find_text: str = Field(description="Exact text to find.")
-    replace_text: str = Field(description="Text to replace it with.")
-    match_case: bool = Field(default=False, description="Require exact case match.")
+    op: Literal["replace", "append", "overwrite"] = Field(description="replace = find-and-replace exact text; append = add to the end; overwrite = replace the whole document.")
+    find_text: str | None = Field(default=None, description="For op=replace: exact text to find.")
+    replace_text: str | None = Field(default=None, description="For op=replace: text to replace it with.")
+    match_case: bool = Field(default=False, description="For op=replace: require exact case match.")
+    text: str | None = Field(default=None, description="For op=append: text to add at the end.")
+    content: str | None = Field(default=None, description="For op=overwrite: the new full document content.")
 
 
-class AppendTextParams(BaseModel):
-    file_id: str = Field(description="Google Doc file ID.")
-    text: str = Field(description="Text to append at the end of the document.")
+class EditSpreadsheetParams(BaseModel):
+    file_id: str = Field(description="Google Sheets file ID.")
+    cell_range: str = Field(description="A1 notation range, e.g. 'Sheet1!A1:D10'.")
+    values: list[list[str | int | float | bool | None]] = Field(description="Row-major 2D array of cell values to write into the range.")
 
 
-class OverwriteTextParams(BaseModel):
-    file_id: str = Field(description="File ID (Google Doc or plain text file).")
+class SpreadsheetComputeParams(BaseModel):
+    file_id: str = Field(description="Google Sheets file ID.")
+    cell_range: str = Field(description="A1 notation range, e.g. 'Sheet1!B2:B50'.")
+    operation: Literal["sum", "count", "average", "min", "max"] = Field(description="Exact computation over the range (count counts all non-empty cells; the rest use numeric cells).")
+
+
+class WriteTextParams(BaseModel):
+    file_id: str = Field(description="File ID of a genuinely text-based file (text/JSON/XML/YAML). Binary formats (PDF/DOCX/etc) are read-only.")
     content: str = Field(description="New full content — replaces everything currently in the file.")
 
 
-class ReadSpreadsheetParams(BaseModel):
-    file_id: str = Field(description="Google Sheets file ID.")
-    cell_range: str = Field(description="A1 notation range, e.g. 'Sheet1!A1:D10', or just a sheet name for the whole sheet.")
-
-
-class WriteSpreadsheetParams(BaseModel):
-    file_id: str = Field(description="Google Sheets file ID.")
-    cell_range: str = Field(description="A1 notation range, e.g. 'Sheet1!A1:D10'.")
-    values: list[list[str | int | float | bool | None]] = Field(description="Row-major 2D array of cell values.")
-
-
-class AggregateSpreadsheetParams(BaseModel):
-    file_id: str = Field(description="Google Sheets file ID.")
-    cell_range: str = Field(description="A1 notation range, e.g. 'Sheet1!B2:B50'.")
-    operation: Literal["sum", "count", "average", "min", "max"] = Field(description="Exact computation to run over the range's numeric cells (count counts all non-empty cells, not just numeric ones).")
+# ── Picker registration fallback ──────────────────────────────────────────────
 
 
 class PickedFileInput(BaseModel):
@@ -69,11 +89,3 @@ class PickedFileInput(BaseModel):
 
 class RegisterPickedFilesParams(BaseModel):
     files: list[PickedFileInput] = Field(description="Files copied from the Google Picker page's output box (JSON with a 'files' array). Paste that exact array here.")
-
-
-class AccountParam(BaseModel):
-    account: str = Field(description="Which connected Google account — its email address (from list_accounts).")
-
-
-class PickFilesParams(BaseModel):
-    account: str = Field(default="", description="Which connected Google account to pick files for (email). Omit to use the active account.")

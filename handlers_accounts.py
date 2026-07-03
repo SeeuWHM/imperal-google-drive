@@ -7,9 +7,9 @@ import logging
 from imperal_sdk.chat.action_result import ActionResult
 
 from app import chat
+from providers import lifecycle
 from providers.helpers import (
     ACCOUNTS_COLLECTION,
-    FILES_COLLECTION,
     _account_by_email,
     _account_email,
     _all_accounts,
@@ -54,9 +54,9 @@ async def impl_switch_account(ctx, account: str) -> str:
 async def impl_disconnect_account(ctx, account: str) -> tuple[str, int]:
     target = await _account_by_email(ctx, account)
     email = _account_email(target)
-    # Forget this account's picked-files pool, then the account record itself.
-    for f in await _all_picked_files(ctx, email):
-        await ctx.store.delete(FILES_COLLECTION, f["doc_id"])
+    # Forget this account's picked-files pool (engine docs + records, no drift),
+    # then the account record itself.
+    await lifecycle.forget_account_files(ctx, email)
     await ctx.store.delete(ACCOUNTS_COLLECTION, target["doc_id"])
     remaining = len(await _all_accounts(ctx))
     return email, remaining

@@ -1,7 +1,12 @@
 """Google Drive — SDL entity classes + builders (imperal-sdk 5.9.x).
 
-All @chat.function data_model= types live here, alongside the builder
-functions that turn plain impl_* return values into SDL entities.
+All @chat.function data_model= types live here, with the builders that turn
+plain impl_* return values into SDL entities. Unified toolset:
+  CONTENT → FileText, SearchResults, FileOverview
+  ACTION  → EditResult, ComputeResult
+  FILES   → DocFile / DocFileList / FolderContents
+  ACCOUNTS→ AccountItem / AccountsList / AccountSwitched / AccountDisconnected
+  CONNECT → OAuthConnectResult / PickerLinkResult
 """
 from __future__ import annotations
 
@@ -9,7 +14,7 @@ from pydantic import Field
 
 from imperal_sdk import sdl
 
-# ── Entities ─────────────────────────────────────────────────────────────────
+# ── Connect / picker ───────────────────────────────────────────────────────────
 
 
 class OAuthConnectResult(sdl.Entity):
@@ -24,71 +29,86 @@ class PickerLinkResult(sdl.Entity):
     picker_url: str | None = None
 
 
+# ── Files ──────────────────────────────────────────────────────────────────────
+
+
 class DocFile(sdl.Entity, sdl.FileObject, sdl.Timestamped):
-    """A file the user has picked through connect_google_docs' Google Picker."""
+    """A file the user picked (or a folder they granted) through the Picker."""
     kind: str = "doc_file"
+    status: str | None = None          # pending | indexing | ready | failed | cold
+    is_folder: bool = False
 
 
 class DocFileList(sdl.EntityList[DocFile]):
     pass
 
 
-class TextWindow(sdl.Entity, sdl.Bodied):
-    """A line-numbered window of a text file or document's content."""
-    kind: str = "text_window"
+class FolderContents(sdl.EntityList[DocFile]):
+    """The children of one granted folder (drill-in view)."""
+    folder_id: str | None = None
+    folder_name: str | None = None
+
+
+# ── CONTENT plane ──────────────────────────────────────────────────────────────
+
+
+class FileText(sdl.Entity, sdl.Bodied):
+    """A windowed, character-addressed slice of any file's extracted text."""
+    kind: str = "file_text"
     file_id: str | None = None
     offset: int = 0
+    returned_chars: int = 0
+    total_chars: int = 0
     has_more: bool = False
-    total_lines: int = 0
 
 
-class SearchMatch(sdl.Entity):
-    kind: str = "search_match"
-    line_number: int = 0
+class SearchHit(sdl.Entity):
+    kind: str = "search_hit"
+    label: str = ""
     snippet: str = ""
+    score: float | None = None
 
 
-class SearchResults(sdl.EntityList[SearchMatch]):
-    file_id: str | None = None
+class SearchResults(sdl.EntityList[SearchHit]):
     query: str | None = None
-
-
-class DocStats(sdl.Entity, sdl.Excerptable):
-    kind: str = "doc_stats"
     file_id: str | None = None
-    char_count: int = 0
-    paragraph_count: int | None = None
+    mode: str | None = None            # semantic | exact
+
+
+class FileOverview(sdl.Entity, sdl.Excerptable):
+    kind: str = "file_overview"
+    file_id: str | None = None
+    mime_type: str | None = None
+    size_bytes: int | None = None
+    status: str | None = None
+
+
+# ── ACTION plane ───────────────────────────────────────────────────────────────
 
 
 class EditResult(sdl.Entity):
     kind: str = "edit_result"
     file_id: str | None = None
+    op: str | None = None
     occurrences_changed: int | None = None
 
 
-class SpreadsheetRange(sdl.Entity):
-    kind: str = "spreadsheet_range"
-    file_id: str | None = None
-    cell_range: str | None = None
-    row_count: int = 0
-    values: list[list] = Field(default_factory=list)
-
-
-class SpreadsheetInfo(sdl.Entity):
-    """Sheet names + dimensions — needed before a range can be addressed by
-    name, since there is no way to guess a sheet's title otherwise."""
-    kind: str = "spreadsheet_info"
-    file_id: str | None = None
-    sheets: list[dict] = Field(default_factory=list)
-
-
-class AggregateResult(sdl.Entity):
-    kind: str = "aggregate_result"
+class ComputeResult(sdl.Entity):
+    kind: str = "compute_result"
     file_id: str | None = None
     cell_range: str | None = None
     operation: str | None = None
     result: float = 0.0
     cell_count: int = 0
+
+
+class IndexResult(sdl.Entity):
+    kind: str = "index_result"
+    indexed: int = 0
+    failed: int = 0
+
+
+# ── Accounts ───────────────────────────────────────────────────────────────────
 
 
 class AccountItem(sdl.Entity):
@@ -115,16 +135,14 @@ class AccountDisconnected(sdl.Entity):
     remaining: int = 0
 
 
-# ── Builders — plain dict/dataclass -> SDL entity ────────────────────────────
+# ── Builders — plain dict/tuple -> SDL entity ─────────────────────────────────
 
 
 def build_oauth_connect(auth_url: str | None, already_connected: bool, instruction: str | None) -> OAuthConnectResult:
     return OAuthConnectResult(
-        id="google-docs-connect",
-        title="Already connected" if already_connected else "Connect Google Docs",
-        auth_url=auth_url,
-        already_connected=already_connected,
-        instruction=instruction,
+        id="google-drive-connect",
+        title="Already connected" if already_connected else "Connect Google Drive",
+        auth_url=auth_url, already_connected=already_connected, instruction=instruction,
     )
 
 
@@ -140,6 +158,8 @@ def build_doc_file(f: dict) -> DocFile:
         mime_type=f.get("mime_type"),
         size_bytes=f.get("size_bytes"),
         updated_at=f.get("modified_at"),
+        status=f.get("status"),
+        is_folder=bool(f.get("is_folder")),
     )
 
 
@@ -147,53 +167,71 @@ def build_doc_file_list(files: list[dict]) -> DocFileList:
     return DocFileList(items=[build_doc_file(f) for f in files], total=len(files))
 
 
-def build_text_window(file_id: str, numbered_text: str, offset: int, has_more: bool, total_lines: int) -> TextWindow:
-    return TextWindow(
-        id=file_id, title=f"{file_id} (lines {offset + 1}-{offset + numbered_text.count(chr(10)) + 1})",
-        body=numbered_text, body_format="plain",
-        file_id=file_id, offset=offset, has_more=has_more, total_lines=total_lines,
+def build_folder_contents(folder_id: str, folder_name: str | None, files: list[dict]) -> FolderContents:
+    return FolderContents(
+        items=[build_doc_file(f) for f in files], total=len(files),
+        folder_id=folder_id, folder_name=folder_name,
     )
 
 
-def build_search_results(file_id: str, query: str, matches: list[tuple[int, str]]) -> SearchResults:
-    items = [SearchMatch(id=f"{file_id}:{ln}", title=f"line {ln}", line_number=ln, snippet=snippet) for ln, snippet in matches]
-    return SearchResults(items=items, total=len(items), file_id=file_id, query=query)
-
-
-def build_doc_stats(file_id: str, char_count: int, word_count: int, paragraph_count: int | None) -> DocStats:
-    return DocStats(
-        id=file_id, title=f"Stats for {file_id}",
-        file_id=file_id, char_count=char_count, word_count=word_count, paragraph_count=paragraph_count,
+def build_file_text(data: dict) -> FileText:
+    fid = data.get("file_id")
+    off = data.get("offset", 0)
+    return FileText(
+        id=str(fid),
+        title=f"{data.get('name') or fid} (from char {off})",
+        body=data.get("text", ""), body_format="plain",
+        file_id=fid, offset=off,
+        returned_chars=data.get("returned_chars", 0),
+        total_chars=data.get("total_chars", 0),
+        has_more=bool(data.get("has_more")),
     )
 
 
-def build_edit_result(file_id: str, occurrences_changed: int | None = None) -> EditResult:
-    return EditResult(id=file_id, title=f"Edited {file_id}", file_id=file_id, occurrences_changed=occurrences_changed)
-
-
-def build_spreadsheet_range(file_id: str, cell_range: str, values: list[list]) -> SpreadsheetRange:
-    return SpreadsheetRange(
-        id=f"{file_id}:{cell_range}", title=f"{file_id} {cell_range}",
-        file_id=file_id, cell_range=cell_range, row_count=len(values), values=values,
+def build_search_results(data: dict) -> SearchResults:
+    items = [
+        SearchHit(id=f"{i}", title=r.get("label", ""), label=r.get("label", ""),
+                  snippet=r.get("text", ""), score=r.get("score"))
+        for i, r in enumerate(data.get("results", []))
+    ]
+    return SearchResults(
+        items=items, total=len(items),
+        query=data.get("query"), file_id=data.get("file_id"), mode=data.get("mode"),
     )
 
 
-def build_spreadsheet_info(file_id: str, sheets: list[dict]) -> SpreadsheetInfo:
-    return SpreadsheetInfo(id=file_id, title=f"Sheets in {file_id}", file_id=file_id, sheets=sheets)
-
-
-def build_aggregate_result(file_id: str, cell_range: str, operation: str, result: float, cell_count: int) -> AggregateResult:
-    return AggregateResult(
-        id=f"{file_id}:{cell_range}:{operation}", title=f"{operation}({cell_range})",
-        file_id=file_id, cell_range=cell_range, operation=operation, result=result, cell_count=cell_count,
+def build_file_overview(data: dict) -> FileOverview:
+    return FileOverview(
+        id=str(data.get("file_id")),
+        title=data.get("name") or str(data.get("file_id")),
+        excerpt=data.get("preview"),
+        file_id=data.get("file_id"), mime_type=data.get("mime_type"),
+        size_bytes=data.get("size_bytes"), status=data.get("status"),
     )
+
+
+def build_edit_result(file_id: str, op: str | None = None, occurrences_changed: int | None = None) -> EditResult:
+    return EditResult(id=file_id, title=f"Edited {file_id}", file_id=file_id, op=op, occurrences_changed=occurrences_changed)
+
+
+def build_compute_result(data: dict) -> ComputeResult:
+    return ComputeResult(
+        id=f"{data.get('file_id')}:{data.get('range')}:{data.get('operation')}",
+        title=f"{data.get('operation')}({data.get('range')})",
+        file_id=data.get("file_id"), cell_range=data.get("range"),
+        operation=data.get("operation"), result=float(data.get("result", 0.0)),
+        cell_count=data.get("cell_count", 0),
+    )
+
+
+def build_index_result(indexed: int, failed: int) -> IndexResult:
+    return IndexResult(id="index", title=f"Indexed {indexed} file(s)", indexed=indexed, failed=failed)
 
 
 def build_account_item(acc: dict, file_count: int) -> AccountItem:
     email = acc.get("email") or acc.get("doc_id") or "?"
     return AccountItem(
-        id=email, title=email,
-        email=acc.get("email"), provider="Google",
+        id=email, title=email, email=acc.get("email"), provider="Google",
         is_active=bool(acc.get("is_active", False)), file_count=file_count,
     )
 
@@ -204,12 +242,8 @@ def build_accounts_list(accounts_with_counts: list[tuple[dict, int]]) -> Account
 
 
 def build_account_switched(active_account: str) -> AccountSwitched:
-    return AccountSwitched(
-        id=active_account or "none", title=f"Switched to {active_account}", active_account=active_account,
-    )
+    return AccountSwitched(id=active_account or "none", title=f"Switched to {active_account}", active_account=active_account)
 
 
 def build_account_disconnected(email: str, remaining: int) -> AccountDisconnected:
-    return AccountDisconnected(
-        id=email or "none", title=f"Disconnected {email}", email=email, remaining=remaining,
-    )
+    return AccountDisconnected(id=email or "none", title=f"Disconnected {email}", email=email, remaining=remaining)

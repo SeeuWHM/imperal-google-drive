@@ -2,7 +2,7 @@
   "manifest_schema_version": 3,
   "sdk_version": "5.9.2",
   "app_id": "google-drive-connector",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "name": "Google Drive Connector",
   "description": "Read and edit Google Docs, Google Sheets, and plain text files, and read Google Slides, stored in the user's Google Drive. Nothing is stored on Imperal — content is fetched live and written straight back to the source.",
   "icon": "google-drive-connector.svg",
@@ -16,13 +16,13 @@
   "tools": [
     {
       "name": "skeleton_refresh_doc_reader_files",
-      "description": "Google Drive status — connected Google accounts, total picked files, names, sizes, extensions",
+      "description": "Google Drive status — connected accounts, picked files, how many are indexed and ready, names, types",
       "scopes": [],
       "parameters": {}
     },
     {
       "name": "connect_google_docs",
-      "description": "Start Google Drive OAuth — returns an authorisation URL to open in the browser. If already connected, returns that status instead of a new URL.",
+      "description": "Start Google Drive OAuth — returns an authorisation URL to open in the browser. Connecting again adds another Google account (each keeps its own pool of picked files).",
       "action_type": "read",
       "chain_callable": true,
       "effects": [],
@@ -148,7 +148,7 @@
     },
     {
       "name": "open_file_picker",
-      "description": "Get a link to the Google Picker where the user selects which Drive files Google Drive may access, for a specific connected account (defaults to the active one). Requires connect_google_docs first. Picked files are registered automatically into that account's own pool — call list_connected_files afterwards to check.",
+      "description": "Get a link to the Google Picker where the user selects which Drive files/folders Google Drive may access (for a specific connected account, default the active one). Picked items register automatically; call list_files afterwards.",
       "action_type": "read",
       "chain_callable": true,
       "effects": [],
@@ -264,7 +264,7 @@
     },
     {
       "name": "register_picked_files",
-      "description": "Manual fallback: register files from the JSON the Picker page showed, ONLY if it displayed a copy-paste box instead of confirming automatically (rare — means the automatic path failed). Skips files already registered.",
+      "description": "Manual fallback: register files from the JSON the Picker page showed, ONLY if it displayed a copy-paste box instead of confirming automatically (rare). Skips files already registered.",
       "action_type": "write",
       "chain_callable": true,
       "effects": [],
@@ -398,6 +398,18 @@
             "default": null,
             "title": "File Id"
           },
+          "op": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Op"
+          },
           "occurrences_changed": {
             "anyOf": [
               {
@@ -426,8 +438,8 @@
       "owner_chat_tool": "tool_doc_reader_chat"
     },
     {
-      "name": "list_connected_files",
-      "description": "List the Google Drive files the user has picked for Google Drive to access (name, mime type, last modified). Does not return file content. Automatically picks up files just selected in the Picker, and drops files the user deleted or unshared on Google's side.",
+      "name": "list_files",
+      "description": "List the Drive files AND folders the user connected — name, type, size and indexing status (pending/indexing/ready/failed/cold). Folders can be opened with open_folder. Automatically picks up items just selected in the Picker. Does not return file content.",
       "action_type": "read",
       "chain_callable": true,
       "effects": [],
@@ -440,7 +452,7 @@
       "return_schema": {
         "$defs": {
           "DocFile": {
-            "description": "A file the user has picked through connect_google_docs' Google Picker.",
+            "description": "A file the user picked (or a folder they granted) through the Picker.",
             "properties": {
               "created_at": {
                 "anyOf": [
@@ -655,6 +667,11 @@
                 ],
                 "default": null,
                 "title": "Url"
+              },
+              "is_folder": {
+                "default": false,
+                "title": "Is Folder",
+                "type": "boolean"
               }
             },
             "required": [
@@ -718,8 +735,339 @@
       "owner_chat_tool": "tool_doc_reader_chat"
     },
     {
+      "name": "open_folder",
+      "description": "List the contents of a connected Google Drive folder (files + subfolders) by its folder_id from list_files. Read a file inside it with read_file.",
+      "action_type": "read",
+      "chain_callable": true,
+      "effects": [],
+      "id_projection": "",
+      "params_schema": {
+        "properties": {
+          "folder_id": {
+            "description": "Google Drive folder ID (from list_files) whose contents to list.",
+            "title": "Folder Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "folder_id"
+        ],
+        "title": "FolderParams",
+        "type": "object"
+      },
+      "return_schema": {
+        "$defs": {
+          "DocFile": {
+            "description": "A file the user picked (or a folder they granted) through the Picker.",
+            "properties": {
+              "created_at": {
+                "anyOf": [
+                  {
+                    "format": "date-time",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Created At",
+                "x-sdl-role": "time.created_at"
+              },
+              "updated_at": {
+                "anyOf": [
+                  {
+                    "format": "date-time",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Updated At",
+                "x-sdl-role": "time.updated_at"
+              },
+              "deleted_at": {
+                "anyOf": [
+                  {
+                    "format": "date-time",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Deleted At",
+                "x-sdl-role": "time.deleted_at"
+              },
+              "filename": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Filename",
+                "x-sdl-role": "media.filename"
+              },
+              "extension": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Extension",
+                "x-sdl-role": "media.extension"
+              },
+              "mime_type": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Mime Type",
+                "x-sdl-role": "media.mime_type"
+              },
+              "size_bytes": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Size Bytes",
+                "x-sdl-role": "media.size_bytes"
+              },
+              "media_class": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Media Class",
+                "x-sdl-role": "media.media_class"
+              },
+              "path": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Path",
+                "x-sdl-role": "media.path"
+              },
+              "checksum_sha256": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Checksum Sha256",
+                "x-sdl-role": "media.checksum_sha256"
+              },
+              "permissions": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Permissions",
+                "x-sdl-role": "media.permissions"
+              },
+              "id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "integer"
+                  }
+                ],
+                "title": "Id"
+              },
+              "title": {
+                "title": "Title",
+                "type": "string"
+              },
+              "kind": {
+                "default": "doc_file",
+                "title": "Kind",
+                "type": "string"
+              },
+              "subtitle": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Subtitle"
+              },
+              "description": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Description"
+              },
+              "status": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Status"
+              },
+              "url": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Url"
+              },
+              "is_folder": {
+                "default": false,
+                "title": "Is Folder",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "title"
+            ],
+            "title": "DocFile",
+            "type": "object",
+            "x-sdl": "entity"
+          }
+        },
+        "description": "The children of one granted folder (drill-in view).",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/$defs/DocFile"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Total"
+          },
+          "page": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Page"
+          },
+          "has_more": {
+            "default": false,
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "folder_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Folder Id"
+          },
+          "folder_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Folder Name"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "FolderContents",
+        "type": "object",
+        "x-sdl": "entity-list"
+      },
+      "event": "",
+      "background": false,
+      "long_running": false,
+      "scopes": [],
+      "owner_chat_tool": "tool_doc_reader_chat"
+    },
+    {
       "name": "disconnect_file",
-      "description": "Remove a file from Google Drive's connected-files list. The Google file itself is untouched — this only stops Google Drive from tracking/reading it.",
+      "description": "Remove a file from the connected list and delete its cached index (Postgres+Nextcloud). The file in Google Drive itself is untouched.",
       "action_type": "write",
       "chain_callable": true,
       "effects": [],
@@ -727,7 +1075,7 @@
       "params_schema": {
         "properties": {
           "file_id": {
-            "description": "Google Drive file ID (from list_connected_files).",
+            "description": "Google Drive file ID (from list_files).",
             "title": "File Id",
             "type": "string"
           }
@@ -819,6 +1167,18 @@
             ],
             "default": null,
             "title": "File Id"
+          },
+          "op": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Op"
           },
           "occurrences_changed": {
             "anyOf": [
@@ -1035,7 +1395,7 @@
       "params_schema": {
         "properties": {
           "account": {
-            "description": "Which connected Google account — its email address (from list_accounts).",
+            "description": "Which connected Google account — its email (from list_accounts).",
             "title": "Account",
             "type": "string"
           }
@@ -1153,7 +1513,7 @@
       "params_schema": {
         "properties": {
           "account": {
-            "description": "Which connected Google account — its email address (from list_accounts).",
+            "description": "Which connected Google account — its email (from list_accounts).",
             "title": "Account",
             "type": "string"
           }
@@ -1267,8 +1627,8 @@
       "owner_chat_tool": "tool_doc_reader_chat"
     },
     {
-      "name": "read_text_file",
-      "description": "Read a file from the user's Drive that is NOT a Google Doc/Sheet — plain text, PDF, DOCX, XLSX, PPTX, or similar. Text is always extracted first (never raw bytes). Returns line-numbered text. Omit limit to read the whole file.",
+      "name": "read_file",
+      "description": "Read the text of ANY connected Drive file — Google Doc/Sheet/Slides or PDF/PPTX/DOCX/XLSX/plain text. Returns a windowed slice (character offset/limit). For a long file, prefer search_files to jump to the relevant part instead of reading it all.",
       "action_type": "read",
       "chain_callable": true,
       "effects": [],
@@ -1276,13 +1636,13 @@
       "params_schema": {
         "properties": {
           "file_id": {
-            "description": "Google Drive file ID.",
+            "description": "Google Drive file ID (from list_files). Any type — Doc, Sheet, Slides, PDF, PPTX, DOCX, XLSX, text.",
             "title": "File Id",
             "type": "string"
           },
           "offset": {
             "default": 0,
-            "description": "0-based starting line number.",
+            "description": "0-based character offset to start reading from.",
             "title": "Offset",
             "type": "integer"
           },
@@ -1296,18 +1656,18 @@
               }
             ],
             "default": null,
-            "description": "Max number of lines to return. Omit to read to the end.",
+            "description": "Max characters to return. Omit for a sensible default window (use offset to page a long file, or search_files to jump to the relevant part).",
             "title": "Limit"
           }
         },
         "required": [
           "file_id"
         ],
-        "title": "ReadRangeParams",
+        "title": "ReadFileParams",
         "type": "object"
       },
       "return_schema": {
-        "description": "A line-numbered window of a text file or document's content.",
+        "description": "A windowed, character-addressed slice of any file's extracted text.",
         "properties": {
           "body": {
             "anyOf": [
@@ -1370,7 +1730,7 @@
             "type": "string"
           },
           "kind": {
-            "default": "text_window",
+            "default": "file_text",
             "title": "Kind",
             "type": "string"
           },
@@ -1439,22 +1799,27 @@
             "title": "Offset",
             "type": "integer"
           },
+          "returned_chars": {
+            "default": 0,
+            "title": "Returned Chars",
+            "type": "integer"
+          },
+          "total_chars": {
+            "default": 0,
+            "title": "Total Chars",
+            "type": "integer"
+          },
           "has_more": {
             "default": false,
             "title": "Has More",
             "type": "boolean"
-          },
-          "total_lines": {
-            "default": 0,
-            "title": "Total Lines",
-            "type": "integer"
           }
         },
         "required": [
           "id",
           "title"
         ],
-        "title": "TextWindow",
+        "title": "FileText",
         "type": "object",
         "x-sdl": "entity"
       },
@@ -1465,177 +1830,35 @@
       "owner_chat_tool": "tool_doc_reader_chat"
     },
     {
-      "name": "write_text_file",
-      "description": "Overwrite a plain text file's entire content in the user's Drive. Only works for genuinely text-based files (not PDF/DOCX/etc — those are read-only). Changes the real file immediately.",
-      "action_type": "write",
-      "chain_callable": true,
-      "effects": [],
-      "id_projection": "",
-      "params_schema": {
-        "properties": {
-          "file_id": {
-            "description": "File ID (Google Doc or plain text file).",
-            "title": "File Id",
-            "type": "string"
-          },
-          "content": {
-            "description": "New full content — replaces everything currently in the file.",
-            "title": "Content",
-            "type": "string"
-          }
-        },
-        "required": [
-          "file_id",
-          "content"
-        ],
-        "title": "OverwriteTextParams",
-        "type": "object"
-      },
-      "return_schema": {
-        "properties": {
-          "id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "integer"
-              }
-            ],
-            "title": "Id"
-          },
-          "title": {
-            "title": "Title",
-            "type": "string"
-          },
-          "kind": {
-            "default": "edit_result",
-            "title": "Kind",
-            "type": "string"
-          },
-          "subtitle": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Subtitle"
-          },
-          "description": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Description"
-          },
-          "status": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Status"
-          },
-          "url": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Url"
-          },
-          "file_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "File Id"
-          },
-          "occurrences_changed": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Occurrences Changed"
-          }
-        },
-        "required": [
-          "id",
-          "title"
-        ],
-        "title": "EditResult",
-        "type": "object",
-        "x-sdl": "entity"
-      },
-      "event": "file.edited",
-      "background": false,
-      "long_running": false,
-      "scopes": [],
-      "owner_chat_tool": "tool_doc_reader_chat"
-    },
-    {
-      "name": "search_in_text_file",
-      "description": "Search a Drive file (PDF/DOCX/XLSX/PPTX/text) for a substring — text is extracted first, then searched. Returns matching lines with line numbers.",
+      "name": "search_files",
+      "description": "Search the user's connected Drive files. Omit file_id to search across ALL files by meaning (semantic — returns the most relevant snippets, token-cheap). Give file_id to find an exact substring within ONE file. Use this instead of read_file when you only need to locate something.",
       "action_type": "read",
       "chain_callable": true,
       "effects": [],
       "id_projection": "",
       "params_schema": {
         "properties": {
-          "file_id": {
-            "description": "Google Drive file ID.",
-            "title": "File Id",
-            "type": "string"
-          },
           "query": {
-            "description": "Text to search for (case-insensitive by default).",
+            "description": "What to look for.",
             "title": "Query",
             "type": "string"
           },
-          "case_sensitive": {
-            "default": false,
-            "description": "Match case exactly.",
-            "title": "Case Sensitive",
-            "type": "boolean"
+          "file_id": {
+            "default": "",
+            "description": "Optional: restrict to ONE file (exact substring search in that file). Omit to search across ALL your files by meaning (semantic).",
+            "title": "File Id",
+            "type": "string"
           }
         },
         "required": [
-          "file_id",
           "query"
         ],
-        "title": "SearchParams",
+        "title": "SearchFilesParams",
         "type": "object"
       },
       "return_schema": {
         "$defs": {
-          "SearchMatch": {
+          "SearchHit": {
             "properties": {
               "id": {
                 "anyOf": [
@@ -1653,7 +1876,7 @@
                 "type": "string"
               },
               "kind": {
-                "default": "search_match",
+                "default": "search_hit",
                 "title": "Kind",
                 "type": "string"
               },
@@ -1705,22 +1928,34 @@
                 "default": null,
                 "title": "Url"
               },
-              "line_number": {
-                "default": 0,
-                "title": "Line Number",
-                "type": "integer"
+              "label": {
+                "default": "",
+                "title": "Label",
+                "type": "string"
               },
               "snippet": {
                 "default": "",
                 "title": "Snippet",
                 "type": "string"
+              },
+              "score": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Score"
               }
             },
             "required": [
               "id",
               "title"
             ],
-            "title": "SearchMatch",
+            "title": "SearchHit",
             "type": "object",
             "x-sdl": "entity"
           }
@@ -1728,7 +1963,7 @@
         "properties": {
           "items": {
             "items": {
-              "$ref": "#/$defs/SearchMatch"
+              "$ref": "#/$defs/SearchHit"
             },
             "title": "Items",
             "type": "array"
@@ -1762,6 +1997,18 @@
             "title": "Has More",
             "type": "boolean"
           },
+          "query": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Query"
+          },
           "file_id": {
             "anyOf": [
               {
@@ -1774,7 +2021,7 @@
             "default": null,
             "title": "File Id"
           },
-          "query": {
+          "mode": {
             "anyOf": [
               {
                 "type": "string"
@@ -1784,7 +2031,7 @@
               }
             ],
             "default": null,
-            "title": "Query"
+            "title": "Mode"
           }
         },
         "required": [
@@ -1801,8 +2048,8 @@
       "owner_chat_tool": "tool_doc_reader_chat"
     },
     {
-      "name": "read_document_text",
-      "description": "Read a Google Doc's text content. Returns line-numbered text (like a source file). Omit limit to read the whole document — use offset/limit only for very long documents.",
+      "name": "file_overview",
+      "description": "A quick, cheap look at one file — its type, size, indexing status and a short preview — without reading the whole thing. Use to answer 'what is this file' before deciding to read it.",
       "action_type": "read",
       "chain_callable": true,
       "effects": [],
@@ -1810,405 +2057,7 @@
       "params_schema": {
         "properties": {
           "file_id": {
-            "description": "Google Drive file ID.",
-            "title": "File Id",
-            "type": "string"
-          },
-          "offset": {
-            "default": 0,
-            "description": "0-based starting line number.",
-            "title": "Offset",
-            "type": "integer"
-          },
-          "limit": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "description": "Max number of lines to return. Omit to read to the end.",
-            "title": "Limit"
-          }
-        },
-        "required": [
-          "file_id"
-        ],
-        "title": "ReadRangeParams",
-        "type": "object"
-      },
-      "return_schema": {
-        "description": "A line-numbered window of a text file or document's content.",
-        "properties": {
-          "body": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Body",
-            "x-sdl-role": "content.body"
-          },
-          "body_format": {
-            "anyOf": [
-              {
-                "enum": [
-                  "md",
-                  "html",
-                  "plain",
-                  "rich"
-                ],
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Body Format",
-            "x-sdl-role": "content.body_format"
-          },
-          "raw_body": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Raw Body",
-            "x-sdl-role": "content.raw_body"
-          },
-          "id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "integer"
-              }
-            ],
-            "title": "Id"
-          },
-          "title": {
-            "title": "Title",
-            "type": "string"
-          },
-          "kind": {
-            "default": "text_window",
-            "title": "Kind",
-            "type": "string"
-          },
-          "subtitle": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Subtitle"
-          },
-          "description": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Description"
-          },
-          "status": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Status"
-          },
-          "url": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Url"
-          },
-          "file_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "File Id"
-          },
-          "offset": {
-            "default": 0,
-            "title": "Offset",
-            "type": "integer"
-          },
-          "has_more": {
-            "default": false,
-            "title": "Has More",
-            "type": "boolean"
-          },
-          "total_lines": {
-            "default": 0,
-            "title": "Total Lines",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "id",
-          "title"
-        ],
-        "title": "TextWindow",
-        "type": "object",
-        "x-sdl": "entity"
-      },
-      "event": "",
-      "background": false,
-      "long_running": false,
-      "scopes": [],
-      "owner_chat_tool": "tool_doc_reader_chat"
-    },
-    {
-      "name": "search_in_document",
-      "description": "Search a Google Doc's text for a substring. Returns matching lines with line numbers — use this instead of read_document_text when you only need to locate something in a long document.",
-      "action_type": "read",
-      "chain_callable": true,
-      "effects": [],
-      "id_projection": "",
-      "params_schema": {
-        "properties": {
-          "file_id": {
-            "description": "Google Drive file ID.",
-            "title": "File Id",
-            "type": "string"
-          },
-          "query": {
-            "description": "Text to search for (case-insensitive by default).",
-            "title": "Query",
-            "type": "string"
-          },
-          "case_sensitive": {
-            "default": false,
-            "description": "Match case exactly.",
-            "title": "Case Sensitive",
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "file_id",
-          "query"
-        ],
-        "title": "SearchParams",
-        "type": "object"
-      },
-      "return_schema": {
-        "$defs": {
-          "SearchMatch": {
-            "properties": {
-              "id": {
-                "anyOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "integer"
-                  }
-                ],
-                "title": "Id"
-              },
-              "title": {
-                "title": "Title",
-                "type": "string"
-              },
-              "kind": {
-                "default": "search_match",
-                "title": "Kind",
-                "type": "string"
-              },
-              "subtitle": {
-                "anyOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null,
-                "title": "Subtitle"
-              },
-              "description": {
-                "anyOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null,
-                "title": "Description"
-              },
-              "status": {
-                "anyOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null,
-                "title": "Status"
-              },
-              "url": {
-                "anyOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null,
-                "title": "Url"
-              },
-              "line_number": {
-                "default": 0,
-                "title": "Line Number",
-                "type": "integer"
-              },
-              "snippet": {
-                "default": "",
-                "title": "Snippet",
-                "type": "string"
-              }
-            },
-            "required": [
-              "id",
-              "title"
-            ],
-            "title": "SearchMatch",
-            "type": "object",
-            "x-sdl": "entity"
-          }
-        },
-        "properties": {
-          "items": {
-            "items": {
-              "$ref": "#/$defs/SearchMatch"
-            },
-            "title": "Items",
-            "type": "array"
-          },
-          "total": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Total"
-          },
-          "page": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Page"
-          },
-          "has_more": {
-            "default": false,
-            "title": "Has More",
-            "type": "boolean"
-          },
-          "file_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "File Id"
-          },
-          "query": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Query"
-          }
-        },
-        "required": [
-          "items"
-        ],
-        "title": "SearchResults",
-        "type": "object",
-        "x-sdl": "entity-list"
-      },
-      "event": "",
-      "background": false,
-      "long_running": false,
-      "scopes": [],
-      "owner_chat_tool": "tool_doc_reader_chat"
-    },
-    {
-      "name": "get_document_stats",
-      "description": "Get exact character/word/paragraph counts for a Google Doc, computed precisely (not estimated). Use this for questions like 'how many words/characters does this document have' instead of counting from read_document_text output.",
-      "action_type": "read",
-      "chain_callable": true,
-      "effects": [],
-      "id_projection": "",
-      "params_schema": {
-        "properties": {
-          "file_id": {
-            "description": "Google Drive file ID (from list_connected_files).",
+            "description": "Google Drive file ID (from list_files).",
             "title": "File Id",
             "type": "string"
           }
@@ -2289,7 +2138,7 @@
             "type": "string"
           },
           "kind": {
-            "default": "doc_stats",
+            "default": "file_overview",
             "title": "Kind",
             "type": "string"
           },
@@ -2353,12 +2202,19 @@
             "default": null,
             "title": "File Id"
           },
-          "char_count": {
-            "default": 0,
-            "title": "Char Count",
-            "type": "integer"
+          "mime_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Mime Type"
           },
-          "paragraph_count": {
+          "size_bytes": {
             "anyOf": [
               {
                 "type": "integer"
@@ -2368,14 +2224,14 @@
               }
             ],
             "default": null,
-            "title": "Paragraph Count"
+            "title": "Size Bytes"
           }
         },
         "required": [
           "id",
           "title"
         ],
-        "title": "DocStats",
+        "title": "FileOverview",
         "type": "object",
         "x-sdl": "entity"
       },
@@ -2386,8 +2242,8 @@
       "owner_chat_tool": "tool_doc_reader_chat"
     },
     {
-      "name": "replace_text_in_document",
-      "description": "Find-and-replace exact text in a Google Doc — changes the real document immediately. Fails with a clear error if find_text has no matches (check the exact wording with read_document_text first).",
+      "name": "edit_document",
+      "description": "Edit a Google Doc: op=replace (exact find-and-replace — fails if find_text has no match), op=append (add text to the end), or op=overwrite (replace the whole document). Changes the live document immediately.",
       "action_type": "write",
       "chain_callable": true,
       "effects": [],
@@ -2397,192 +2253,51 @@
           "file_id": {
             "description": "Google Doc file ID.",
             "title": "File Id",
+            "type": "string"
+          },
+          "op": {
+            "description": "replace = find-and-replace exact text; append = add to the end; overwrite = replace the whole document.",
+            "enum": [
+              "replace",
+              "append",
+              "overwrite"
+            ],
+            "title": "Op",
             "type": "string"
           },
           "find_text": {
-            "description": "Exact text to find.",
-            "title": "Find Text",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "For op=replace: exact text to find.",
+            "title": "Find Text"
           },
           "replace_text": {
-            "description": "Text to replace it with.",
-            "title": "Replace Text",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "For op=replace: text to replace it with.",
+            "title": "Replace Text"
           },
           "match_case": {
             "default": false,
-            "description": "Require exact case match.",
+            "description": "For op=replace: require exact case match.",
             "title": "Match Case",
             "type": "boolean"
-          }
-        },
-        "required": [
-          "file_id",
-          "find_text",
-          "replace_text"
-        ],
-        "title": "ReplaceTextParams",
-        "type": "object"
-      },
-      "return_schema": {
-        "properties": {
-          "id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "integer"
-              }
-            ],
-            "title": "Id"
-          },
-          "title": {
-            "title": "Title",
-            "type": "string"
-          },
-          "kind": {
-            "default": "edit_result",
-            "title": "Kind",
-            "type": "string"
-          },
-          "subtitle": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Subtitle"
-          },
-          "description": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Description"
-          },
-          "status": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Status"
-          },
-          "url": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Url"
-          },
-          "file_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "File Id"
-          },
-          "occurrences_changed": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Occurrences Changed"
-          }
-        },
-        "required": [
-          "id",
-          "title"
-        ],
-        "title": "EditResult",
-        "type": "object",
-        "x-sdl": "entity"
-      },
-      "event": "file.edited",
-      "background": false,
-      "long_running": false,
-      "scopes": [],
-      "owner_chat_tool": "tool_doc_reader_chat"
-    },
-    {
-      "name": "append_text_to_document",
-      "description": "Add text to the end of a Google Doc — changes the real document immediately.",
-      "action_type": "write",
-      "chain_callable": true,
-      "effects": [],
-      "id_projection": "",
-      "params_schema": {
-        "properties": {
-          "file_id": {
-            "description": "Google Doc file ID.",
-            "title": "File Id",
-            "type": "string"
           },
           "text": {
-            "description": "Text to append at the end of the document.",
-            "title": "Text",
-            "type": "string"
-          }
-        },
-        "required": [
-          "file_id",
-          "text"
-        ],
-        "title": "AppendTextParams",
-        "type": "object"
-      },
-      "return_schema": {
-        "properties": {
-          "id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "integer"
-              }
-            ],
-            "title": "Id"
-          },
-          "title": {
-            "title": "Title",
-            "type": "string"
-          },
-          "kind": {
-            "default": "edit_result",
-            "title": "Kind",
-            "type": "string"
-          },
-          "subtitle": {
             "anyOf": [
               {
                 "type": "string"
@@ -2592,108 +2307,28 @@
               }
             ],
             "default": null,
-            "title": "Subtitle"
-          },
-          "description": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Description"
-          },
-          "status": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Status"
-          },
-          "url": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Url"
-          },
-          "file_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "File Id"
-          },
-          "occurrences_changed": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Occurrences Changed"
-          }
-        },
-        "required": [
-          "id",
-          "title"
-        ],
-        "title": "EditResult",
-        "type": "object",
-        "x-sdl": "entity"
-      },
-      "event": "file.edited",
-      "background": false,
-      "long_running": false,
-      "scopes": [],
-      "owner_chat_tool": "tool_doc_reader_chat"
-    },
-    {
-      "name": "overwrite_document_text",
-      "description": "Replace a Google Doc's entire content with new text — changes the real document immediately. Use for a full rewrite; use replace_text_in_document for a targeted edit instead.",
-      "action_type": "write",
-      "chain_callable": true,
-      "effects": [],
-      "id_projection": "",
-      "params_schema": {
-        "properties": {
-          "file_id": {
-            "description": "File ID (Google Doc or plain text file).",
-            "title": "File Id",
-            "type": "string"
+            "description": "For op=append: text to add at the end.",
+            "title": "Text"
           },
           "content": {
-            "description": "New full content — replaces everything currently in the file.",
-            "title": "Content",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "For op=overwrite: the new full document content.",
+            "title": "Content"
           }
         },
         "required": [
           "file_id",
-          "content"
+          "op"
         ],
-        "title": "OverwriteTextParams",
+        "title": "EditDocumentParams",
         "type": "object"
       },
       "return_schema": {
@@ -2778,6 +2413,18 @@
             "default": null,
             "title": "File Id"
           },
+          "op": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Op"
+          },
           "occurrences_changed": {
             "anyOf": [
               {
@@ -2806,284 +2453,8 @@
       "owner_chat_tool": "tool_doc_reader_chat"
     },
     {
-      "name": "get_spreadsheet_info",
-      "description": "List a Google Sheet's tab names and dimensions (rows/columns). Call this before read_spreadsheet_range/write_spreadsheet_range if you don't already know the sheet name — there's no way to guess it otherwise.",
-      "action_type": "read",
-      "chain_callable": true,
-      "effects": [],
-      "id_projection": "",
-      "params_schema": {
-        "properties": {
-          "file_id": {
-            "description": "Google Drive file ID (from list_connected_files).",
-            "title": "File Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "file_id"
-        ],
-        "title": "FileIdParams",
-        "type": "object"
-      },
-      "return_schema": {
-        "description": "Sheet names + dimensions — needed before a range can be addressed by\nname, since there is no way to guess a sheet's title otherwise.",
-        "properties": {
-          "id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "integer"
-              }
-            ],
-            "title": "Id"
-          },
-          "title": {
-            "title": "Title",
-            "type": "string"
-          },
-          "kind": {
-            "default": "spreadsheet_info",
-            "title": "Kind",
-            "type": "string"
-          },
-          "subtitle": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Subtitle"
-          },
-          "description": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Description"
-          },
-          "status": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Status"
-          },
-          "url": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Url"
-          },
-          "file_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "File Id"
-          },
-          "sheets": {
-            "items": {
-              "additionalProperties": true,
-              "type": "object"
-            },
-            "title": "Sheets",
-            "type": "array"
-          }
-        },
-        "required": [
-          "id",
-          "title"
-        ],
-        "title": "SpreadsheetInfo",
-        "type": "object",
-        "x-sdl": "entity"
-      },
-      "event": "",
-      "background": false,
-      "long_running": false,
-      "scopes": [],
-      "owner_chat_tool": "tool_doc_reader_chat"
-    },
-    {
-      "name": "read_spreadsheet_range",
-      "description": "Read a range of cells from a Google Sheet (A1 notation, e.g. 'Sheet1!A1:D10', or a bare sheet name for the whole sheet). Returns the raw values as a 2D array. Use get_spreadsheet_info first if you don't know the sheet name.",
-      "action_type": "read",
-      "chain_callable": true,
-      "effects": [],
-      "id_projection": "",
-      "params_schema": {
-        "properties": {
-          "file_id": {
-            "description": "Google Sheets file ID.",
-            "title": "File Id",
-            "type": "string"
-          },
-          "cell_range": {
-            "description": "A1 notation range, e.g. 'Sheet1!A1:D10', or just a sheet name for the whole sheet.",
-            "title": "Cell Range",
-            "type": "string"
-          }
-        },
-        "required": [
-          "file_id",
-          "cell_range"
-        ],
-        "title": "ReadSpreadsheetParams",
-        "type": "object"
-      },
-      "return_schema": {
-        "properties": {
-          "id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "integer"
-              }
-            ],
-            "title": "Id"
-          },
-          "title": {
-            "title": "Title",
-            "type": "string"
-          },
-          "kind": {
-            "default": "spreadsheet_range",
-            "title": "Kind",
-            "type": "string"
-          },
-          "subtitle": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Subtitle"
-          },
-          "description": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Description"
-          },
-          "status": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Status"
-          },
-          "url": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Url"
-          },
-          "file_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "File Id"
-          },
-          "cell_range": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Cell Range"
-          },
-          "row_count": {
-            "default": 0,
-            "title": "Row Count",
-            "type": "integer"
-          },
-          "values": {
-            "items": {
-              "items": {},
-              "type": "array"
-            },
-            "title": "Values",
-            "type": "array"
-          }
-        },
-        "required": [
-          "id",
-          "title"
-        ],
-        "title": "SpreadsheetRange",
-        "type": "object",
-        "x-sdl": "entity"
-      },
-      "event": "",
-      "background": false,
-      "long_running": false,
-      "scopes": [],
-      "owner_chat_tool": "tool_doc_reader_chat"
-    },
-    {
-      "name": "write_spreadsheet_range",
-      "description": "Write a 2D array of values into a Google Sheet range (A1 notation) — changes the real spreadsheet immediately, overwriting only the given range.",
+      "name": "edit_spreadsheet",
+      "description": "Write a 2D array of values into a Google Sheet range (A1 notation, e.g. 'Sheet1!A1:D10'). Overwrites only that range on the live sheet.",
       "action_type": "write",
       "chain_callable": true,
       "effects": [],
@@ -3101,7 +2472,7 @@
             "type": "string"
           },
           "values": {
-            "description": "Row-major 2D array of cell values.",
+            "description": "Row-major 2D array of cell values to write into the range.",
             "items": {
               "items": {
                 "anyOf": [
@@ -3133,7 +2504,7 @@
           "cell_range",
           "values"
         ],
-        "title": "WriteSpreadsheetParams",
+        "title": "EditSpreadsheetParams",
         "type": "object"
       },
       "return_schema": {
@@ -3218,6 +2589,18 @@
             "default": null,
             "title": "File Id"
           },
+          "op": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Op"
+          },
           "occurrences_changed": {
             "anyOf": [
               {
@@ -3246,8 +2629,8 @@
       "owner_chat_tool": "tool_doc_reader_chat"
     },
     {
-      "name": "aggregate_spreadsheet_range",
-      "description": "Compute an exact sum/count/average/min/max over a Google Sheet range, calculated in code — not estimated by reading the dumped values. Use this instead of read_spreadsheet_range for questions like 'what's the total of column B'.",
+      "name": "spreadsheet_compute",
+      "description": "Compute an EXACT sum/count/average/min/max over a Google Sheet range (A1 notation), calculated in code — not estimated from a text dump. Use for totals instead of reading raw cells.",
       "action_type": "read",
       "chain_callable": true,
       "effects": [],
@@ -3265,7 +2648,7 @@
             "type": "string"
           },
           "operation": {
-            "description": "Exact computation to run over the range's numeric cells (count counts all non-empty cells, not just numeric ones).",
+            "description": "Exact computation over the range (count counts all non-empty cells; the rest use numeric cells).",
             "enum": [
               "sum",
               "count",
@@ -3282,7 +2665,7 @@
           "cell_range",
           "operation"
         ],
-        "title": "AggregateSpreadsheetParams",
+        "title": "SpreadsheetComputeParams",
         "type": "object"
       },
       "return_schema": {
@@ -3303,7 +2686,7 @@
             "type": "string"
           },
           "kind": {
-            "default": "aggregate_result",
+            "default": "compute_result",
             "title": "Kind",
             "type": "string"
           },
@@ -3406,7 +2789,7 @@
           "id",
           "title"
         ],
-        "title": "AggregateResult",
+        "title": "ComputeResult",
         "type": "object",
         "x-sdl": "entity"
       },
@@ -3417,93 +2800,34 @@
       "owner_chat_tool": "tool_doc_reader_chat"
     },
     {
-      "name": "read_presentation_text",
-      "description": "Read a Google Slides presentation's text content (all slides, exported as plain text by Google Drive). Read-only — Slides editing isn't supported. Returns line-numbered text. Omit limit to read the whole thing.",
-      "action_type": "read",
+      "name": "write_text_file",
+      "description": "Overwrite a genuinely text-based Drive file (text/JSON/XML/YAML) with new content. Binary formats (PDF/DOCX/XLSX/PPTX) are read-only and will be refused.",
+      "action_type": "write",
       "chain_callable": true,
       "effects": [],
       "id_projection": "",
       "params_schema": {
         "properties": {
           "file_id": {
-            "description": "Google Drive file ID.",
+            "description": "File ID of a genuinely text-based file (text/JSON/XML/YAML). Binary formats (PDF/DOCX/etc) are read-only.",
             "title": "File Id",
             "type": "string"
           },
-          "offset": {
-            "default": 0,
-            "description": "0-based starting line number.",
-            "title": "Offset",
-            "type": "integer"
-          },
-          "limit": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "description": "Max number of lines to return. Omit to read to the end.",
-            "title": "Limit"
+          "content": {
+            "description": "New full content — replaces everything currently in the file.",
+            "title": "Content",
+            "type": "string"
           }
         },
         "required": [
-          "file_id"
+          "file_id",
+          "content"
         ],
-        "title": "ReadRangeParams",
+        "title": "WriteTextParams",
         "type": "object"
       },
       "return_schema": {
-        "description": "A line-numbered window of a text file or document's content.",
         "properties": {
-          "body": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Body",
-            "x-sdl-role": "content.body"
-          },
-          "body_format": {
-            "anyOf": [
-              {
-                "enum": [
-                  "md",
-                  "html",
-                  "plain",
-                  "rich"
-                ],
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Body Format",
-            "x-sdl-role": "content.body_format"
-          },
-          "raw_body": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Raw Body",
-            "x-sdl-role": "content.raw_body"
-          },
           "id": {
             "anyOf": [
               {
@@ -3520,7 +2844,7 @@
             "type": "string"
           },
           "kind": {
-            "default": "text_window",
+            "default": "edit_result",
             "title": "Kind",
             "type": "string"
           },
@@ -3584,19 +2908,135 @@
             "default": null,
             "title": "File Id"
           },
-          "offset": {
+          "op": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Op"
+          },
+          "occurrences_changed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Occurrences Changed"
+          }
+        },
+        "required": [
+          "id",
+          "title"
+        ],
+        "title": "EditResult",
+        "type": "object",
+        "x-sdl": "entity"
+      },
+      "event": "file.edited",
+      "background": false,
+      "long_running": false,
+      "scopes": [],
+      "owner_chat_tool": "tool_doc_reader_chat"
+    },
+    {
+      "name": "index_files",
+      "description": "Index the user's picked Drive files (extract text + build the search index) so they can be read and searched. Runs in the background — you'll get a message when it's done. Call after picking new files, or if a file reports it's still being prepared.",
+      "action_type": "read",
+      "chain_callable": true,
+      "effects": [],
+      "id_projection": "",
+      "params_schema": {
+        "properties": {},
+        "title": "EmptyParams",
+        "type": "object"
+      },
+      "return_schema": {
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "title": "Id"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "kind": {
+            "default": "index_result",
+            "title": "Kind",
+            "type": "string"
+          },
+          "subtitle": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Subtitle"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Description"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Status"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Url"
+          },
+          "indexed": {
             "default": 0,
-            "title": "Offset",
+            "title": "Indexed",
             "type": "integer"
           },
-          "has_more": {
-            "default": false,
-            "title": "Has More",
-            "type": "boolean"
-          },
-          "total_lines": {
+          "failed": {
             "default": 0,
-            "title": "Total Lines",
+            "title": "Failed",
             "type": "integer"
           }
         },
@@ -3604,213 +3044,13 @@
           "id",
           "title"
         ],
-        "title": "TextWindow",
+        "title": "IndexResult",
         "type": "object",
         "x-sdl": "entity"
       },
       "event": "",
-      "background": false,
-      "long_running": false,
-      "scopes": [],
-      "owner_chat_tool": "tool_doc_reader_chat"
-    },
-    {
-      "name": "search_in_presentation",
-      "description": "Search a Google Slides presentation's text for a substring. Returns matching lines with line numbers.",
-      "action_type": "read",
-      "chain_callable": true,
-      "effects": [],
-      "id_projection": "",
-      "params_schema": {
-        "properties": {
-          "file_id": {
-            "description": "Google Drive file ID.",
-            "title": "File Id",
-            "type": "string"
-          },
-          "query": {
-            "description": "Text to search for (case-insensitive by default).",
-            "title": "Query",
-            "type": "string"
-          },
-          "case_sensitive": {
-            "default": false,
-            "description": "Match case exactly.",
-            "title": "Case Sensitive",
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "file_id",
-          "query"
-        ],
-        "title": "SearchParams",
-        "type": "object"
-      },
-      "return_schema": {
-        "$defs": {
-          "SearchMatch": {
-            "properties": {
-              "id": {
-                "anyOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "integer"
-                  }
-                ],
-                "title": "Id"
-              },
-              "title": {
-                "title": "Title",
-                "type": "string"
-              },
-              "kind": {
-                "default": "search_match",
-                "title": "Kind",
-                "type": "string"
-              },
-              "subtitle": {
-                "anyOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null,
-                "title": "Subtitle"
-              },
-              "description": {
-                "anyOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null,
-                "title": "Description"
-              },
-              "status": {
-                "anyOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null,
-                "title": "Status"
-              },
-              "url": {
-                "anyOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null,
-                "title": "Url"
-              },
-              "line_number": {
-                "default": 0,
-                "title": "Line Number",
-                "type": "integer"
-              },
-              "snippet": {
-                "default": "",
-                "title": "Snippet",
-                "type": "string"
-              }
-            },
-            "required": [
-              "id",
-              "title"
-            ],
-            "title": "SearchMatch",
-            "type": "object",
-            "x-sdl": "entity"
-          }
-        },
-        "properties": {
-          "items": {
-            "items": {
-              "$ref": "#/$defs/SearchMatch"
-            },
-            "title": "Items",
-            "type": "array"
-          },
-          "total": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Total"
-          },
-          "page": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Page"
-          },
-          "has_more": {
-            "default": false,
-            "title": "Has More",
-            "type": "boolean"
-          },
-          "file_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "File Id"
-          },
-          "query": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Query"
-          }
-        },
-        "required": [
-          "items"
-        ],
-        "title": "SearchResults",
-        "type": "object",
-        "x-sdl": "entity-list"
-      },
-      "event": "",
-      "background": false,
-      "long_running": false,
+      "background": true,
+      "long_running": true,
       "scopes": [],
       "owner_chat_tool": "tool_doc_reader_chat"
     }
