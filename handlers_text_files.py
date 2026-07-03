@@ -53,12 +53,6 @@ async def _ingest_via_extractor(ctx, file_id: str, picked: dict) -> dict:
     acc = await _active_account(ctx)
     acc = await _refresh_token_if_needed(ctx, acc)
     media_url = f"{DRIVE_API}/files/{file_id}?alt=media"
-    # content_key lets the extractor skip the download+extract+embed entirely
-    # when the file is unchanged — so a re-read (or a retry after a kernel
-    # timeout on a big file's first ingest) is an instant cache hit, not
-    # another multi-MB download. file_id + size changes whenever the content
-    # size changes; cheap (no extra Drive metadata call).
-    content_key = f"{file_id}:{picked.get('size_bytes', 0)}"
     resp = await ctx.http.post(
         f"{DOC_EXTRACTOR_URL}/v1/documents",
         data={
@@ -67,7 +61,6 @@ async def _ingest_via_extractor(ctx, file_id: str, picked: dict) -> dict:
             "url": media_url,
             "auth": acc["access_token"],
             "filename": picked.get("name", file_id),
-            "content_key": content_key,
         },
         timeout=120,
     )
