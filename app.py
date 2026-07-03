@@ -19,7 +19,7 @@ log = logging.getLogger("doc_reader")
 # ── Extension + ChatExtension ─────────────────────────────────────────────────
 
 ext = Extension(
-    "imperal-google-drive",
+    "google-drive-connector",
     version="0.2.0",
     display_name="Google Drive Connector",
     description=(
@@ -27,7 +27,7 @@ ext = Extension(
         "Google Slides, stored in the user's Google Drive. Nothing is stored on "
         "Imperal — content is fetched live and written straight back to the source."
     ),
-    icon="imperal-google-drive.svg",
+    icon="google-drive-connector.svg",
     actions_explicit=True,
     capabilities=["store:read", "store:write", "secrets:read"],
 )
@@ -52,10 +52,10 @@ chat = ChatExtension(
 # google/microsoft/yahoo (hardcoded authorize endpoints) and reads the app secret
 # {provider}_client_id, i.e. "google_client_id". A custom key like "google-docs"
 # raises ValueError at runtime and looks up a non-existent secret. The callback
-# route is /v1/ext/imperal-google-drive/oauth/google/callback (register THIS as
-# the redirect URI in the Google console — it derives from the app_id, which is
-# imperal-google-drive to match the Dev Portal registration; "Google Drive
-# Connector" is only the display_name). Same pattern as mail-client.
+# route is /v1/ext/google-drive-connector/oauth/google/callback (register THIS
+# as the redirect URI in the Google console — it derives from the app_id, which
+# is google-drive-connector to match the Dev Portal profile; the git repo name
+# imperal-google-drive is NOT the app_id). Same pattern as mail-client.
 ext.oauth(
     "google",
     collection="docreader_accounts",
@@ -99,4 +99,4 @@ async def health(ctx) -> dict:
 @ext.on_install
 async def on_install(ctx):
     uid = ctx.user.imperal_id if ctx and hasattr(ctx, "user") and ctx.user else "system"
-    log.info(f"imperal-google-drive installed for user {uid}")
+    log.info(f"google-drive-connector installed for user {uid}")
