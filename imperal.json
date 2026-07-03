@@ -1,11 +1,11 @@
 {
   "manifest_schema_version": 3,
   "sdk_version": "5.9.2",
-  "app_id": "google-drive-connector",
+  "app_id": "imperal-google-drive",
   "version": "0.2.0",
   "name": "Google Drive Connector",
   "description": "Read and edit Google Docs, Google Sheets, and plain text files, and read Google Slides, stored in the user's Google Drive. Nothing is stored on Imperal — content is fetched live and written straight back to the source.",
-  "icon": "google-drive-connector.svg",
+  "icon": "imperal-google-drive.svg",
   "actions_explicit": true,
   "system": false,
   "capabilities": [
