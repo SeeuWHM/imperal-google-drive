@@ -34,7 +34,7 @@ from providers.helpers import (
     _all_picked_files,
 )
 from providers.token_refresh import _refresh_token_if_needed
-from schemas import DisconnectFilesParams, EmptyParams, FileIdParams, FolderParams, PickFilesParams, RegisterPickedFilesParams
+from schemas import DisconnectFilesParams, EmptyParams, FolderParams, PickFilesParams, RegisterPickedFilesParams
 from schemas_sdl import (
     DocFileList,
     EditResult,
@@ -283,20 +283,8 @@ async def fn_open_folder(ctx, params: FolderParams) -> ActionResult:
 
 
 @chat.function(
-    "disconnect_file", action_type="write", event="file.disconnected", data_model=EditResult,
-    description="Remove a file from the connected list and delete its cached index (Postgres+Nextcloud). The file in Google Drive itself is untouched.",
-)
-async def fn_disconnect_file(ctx, params: FileIdParams) -> ActionResult:
-    try:
-        await lifecycle.forget_file(ctx, params.file_id)
-        return ActionResult.success(data=build_edit_result(params.file_id, op="disconnect"), summary="File removed.", refresh_panels=["doc_files"])
-    except Exception as e:
-        return ActionResult.error(str(e), retryable=False)
-
-
-@chat.function(
     "disconnect_files", action_type="write", event="file.disconnected", data_model=EditResult,
-    description="BULK remove several files at once from the connected list and delete their cached indexes (Postgres+Nextcloud), in parallel. The files in Google Drive itself are untouched. Pass the list of file_ids.",
+    description="Remove ONE OR MORE files from the connected list and delete their cached indexes (Postgres+Nextcloud), in parallel. Pass one file_id or several. The files in Google Drive itself are untouched.",
 )
 async def fn_disconnect_files(ctx, params: DisconnectFilesParams) -> ActionResult:
     try:

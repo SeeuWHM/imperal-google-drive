@@ -93,7 +93,7 @@ def _entry_items(entries: list) -> list:
                 badge=ui.Badge("FOLDER", color="blue"),
                 on_click=ui.Call("open_folder", folder_id=f["file_id"]),
                 actions=[{"label": "Remove", "icon": "Trash2",
-                          "on_click": ui.Call("disconnect_file", file_id=f["file_id"])}],
+                          "on_click": ui.Call("disconnect_files", file_ids=[f["file_id"]])}],
             ))
             continue
         ext_label = _type_label(name, f.get("mime_type", ""))
@@ -104,7 +104,7 @@ def _entry_items(entries: list) -> list:
             subtitle=" · ".join(p for p in (ext_label, size_label, status) if p),
             badge=ui.Badge(status, color=_STATUS_COLOR.get(status, "blue")),
             actions=[{"label": "Remove", "icon": "Trash2",
-                      "on_click": ui.Call("disconnect_file", file_id=f["file_id"])}],
+                      "on_click": ui.Call("disconnect_files", file_ids=[f["file_id"]])}],
         ))
     return items
 

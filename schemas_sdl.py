@@ -83,6 +83,16 @@ class FileOverview(sdl.Entity, sdl.Excerptable):
     status: str | None = None
 
 
+class FileTextList(sdl.EntityList[FileText]):
+    """Windows for 1..N files read at once."""
+    pass
+
+
+class FileOverviewList(sdl.EntityList[FileOverview]):
+    """Overviews for 1..N files at once."""
+    pass
+
+
 # ── ACTION plane ───────────────────────────────────────────────────────────────
 
 
@@ -192,15 +202,30 @@ def build_folder_contents(folder_id: str, folder_name: str | None, files: list[d
 def build_file_text(data: dict) -> FileText:
     fid = data.get("file_id")
     off = data.get("offset", 0)
+    status = data.get("status", "ok")
+    if status == "preparing":
+        body = "(preparing — indexing in progress, ask again in a moment)"
+    elif status == "error":
+        body = f"(could not read: {data.get('message', 'error')})"
+    else:
+        body = data.get("text", "")
     return FileText(
         id=str(fid),
-        title=f"{data.get('name') or fid} (from char {off})",
-        body=data.get("text", ""), body_format="plain",
+        title=f"{data.get('name') or fid}" + (f" (from char {off})" if status == "ok" else f" [{status}]"),
+        body=body, body_format="plain",
         file_id=fid, offset=off,
         returned_chars=data.get("returned_chars", 0),
         total_chars=data.get("total_chars", 0),
         has_more=bool(data.get("has_more")),
     )
+
+
+def build_file_text_list(results: list[dict]) -> FileTextList:
+    return FileTextList(items=[build_file_text(r) for r in results], total=len(results))
+
+
+def build_file_overview_list(results: list[dict]) -> FileOverviewList:
+    return FileOverviewList(items=[build_file_overview(r) for r in results], total=len(results))
 
 
 def build_search_results(data: dict) -> SearchResults:

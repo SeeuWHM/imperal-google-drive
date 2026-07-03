@@ -40,15 +40,19 @@ class DisconnectFilesParams(BaseModel):
 # ── CONTENT plane ─────────────────────────────────────────────────────────────
 
 
-class ReadFileParams(BaseModel):
-    file_id: str = Field(description="Google Drive file ID (from list_files). Any type — Doc, Sheet, Slides, PDF, PPTX, DOCX, XLSX, text.")
-    offset: int = Field(default=0, description="0-based character offset to start reading from.")
-    limit: int | None = Field(default=None, description="Max characters to return. Omit for a sensible default window (use offset to page a long file, or search_files to jump to the relevant part).")
+class ReadFilesParams(BaseModel):
+    file_ids: list[str] = Field(description="One or MANY Google Drive file IDs (from list_files). Pass several to read them all at once (parallel). Any type — Doc/Sheet/Slides/PDF/PPTX/DOCX/XLSX/text.")
+    offset: int = Field(default=0, description="0-based character offset. Applies to each file.")
+    limit: int | None = Field(default=None, description="Max characters per file. Omit for a sensible window (a smaller preview when reading several, full window for one).")
+
+
+class OverviewParams(BaseModel):
+    file_ids: list[str] = Field(description="One or MANY Google Drive file IDs (from list_files) to get a quick overview of, at once.")
 
 
 class SearchFilesParams(BaseModel):
     query: str = Field(description="What to look for.")
-    file_id: str = Field(default="", description="Optional: restrict to ONE file (exact substring search in that file). Omit to search across ALL your files by meaning (semantic).")
+    file_ids: list[str] = Field(default_factory=list, description="Optional: restrict to these specific files (exact substring search across them, in parallel). Omit to search ALL your files by meaning (semantic).")
 
 
 # ── ACTION plane ──────────────────────────────────────────────────────────────

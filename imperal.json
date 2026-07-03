@@ -2,7 +2,7 @@
   "manifest_schema_version": 3,
   "sdk_version": "5.9.2",
   "app_id": "google-drive-connector",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "name": "Google Drive Connector",
   "description": "Read and edit Google Docs, Google Sheets, and plain text files, and read Google Slides, stored in the user's Google Drive. Nothing is stored on Imperal — content is fetched live and written straight back to the source.",
   "icon": "google-drive-connector.svg",
@@ -1173,150 +1173,8 @@
       "owner_chat_tool": "tool_doc_reader_chat"
     },
     {
-      "name": "disconnect_file",
-      "description": "Remove a file from the connected list and delete its cached index (Postgres+Nextcloud). The file in Google Drive itself is untouched.",
-      "action_type": "write",
-      "chain_callable": true,
-      "effects": [],
-      "id_projection": "",
-      "params_schema": {
-        "properties": {
-          "file_id": {
-            "description": "Google Drive file ID (from list_files).",
-            "title": "File Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "file_id"
-        ],
-        "title": "FileIdParams",
-        "type": "object"
-      },
-      "return_schema": {
-        "properties": {
-          "id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "integer"
-              }
-            ],
-            "title": "Id"
-          },
-          "title": {
-            "title": "Title",
-            "type": "string"
-          },
-          "kind": {
-            "default": "edit_result",
-            "title": "Kind",
-            "type": "string"
-          },
-          "subtitle": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Subtitle"
-          },
-          "description": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Description"
-          },
-          "status": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Status"
-          },
-          "url": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Url"
-          },
-          "file_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "File Id"
-          },
-          "op": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Op"
-          },
-          "occurrences_changed": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Occurrences Changed"
-          }
-        },
-        "required": [
-          "id",
-          "title"
-        ],
-        "title": "EditResult",
-        "type": "object",
-        "x-sdl": "entity"
-      },
-      "event": "file.disconnected",
-      "background": false,
-      "long_running": false,
-      "scopes": [],
-      "owner_chat_tool": "tool_doc_reader_chat"
-    },
-    {
       "name": "disconnect_files",
-      "description": "BULK remove several files at once from the connected list and delete their cached indexes (Postgres+Nextcloud), in parallel. The files in Google Drive itself are untouched. Pass the list of file_ids.",
+      "description": "Remove ONE OR MORE files from the connected list and delete their cached indexes (Postgres+Nextcloud), in parallel. Pass one file_id or several. The files in Google Drive itself are untouched.",
       "action_type": "write",
       "chain_callable": true,
       "effects": [],
@@ -1879,22 +1737,25 @@
       "owner_chat_tool": "tool_doc_reader_chat"
     },
     {
-      "name": "read_file",
-      "description": "Read the text of ANY connected Drive file — Google Doc/Sheet/Slides or PDF/PPTX/DOCX/XLSX/plain text. Returns a windowed slice (character offset/limit). For a long file, prefer search_files to jump to the relevant part instead of reading it all.",
+      "name": "read_files",
+      "description": "Read the text of ONE OR MANY Drive files at once — pass a single file_id or several and they are read in PARALLEL. Works for any type (Doc/Sheet/Slides/PDF/PPTX/DOCX/XLSX/text). One file → full window; several → a preview of each. A file still indexing comes back marked 'preparing' (indexing is kicked automatically — ask again shortly). Use offset/limit to page a long single file.",
       "action_type": "read",
       "chain_callable": true,
       "effects": [],
       "id_projection": "",
       "params_schema": {
         "properties": {
-          "file_id": {
-            "description": "Google Drive file ID (from list_files). Any type — Doc, Sheet, Slides, PDF, PPTX, DOCX, XLSX, text.",
-            "title": "File Id",
-            "type": "string"
+          "file_ids": {
+            "description": "One or MANY Google Drive file IDs (from list_files). Pass several to read them all at once (parallel). Any type — Doc/Sheet/Slides/PDF/PPTX/DOCX/XLSX/text.",
+            "items": {
+              "type": "string"
+            },
+            "title": "File Ids",
+            "type": "array"
           },
           "offset": {
             "default": 0,
-            "description": "0-based character offset to start reading from.",
+            "description": "0-based character offset. Applies to each file.",
             "title": "Offset",
             "type": "integer"
           },
@@ -1908,158 +1769,208 @@
               }
             ],
             "default": null,
-            "description": "Max characters to return. Omit for a sensible default window (use offset to page a long file, or search_files to jump to the relevant part).",
+            "description": "Max characters per file. Omit for a sensible window (a smaller preview when reading several, full window for one).",
             "title": "Limit"
           }
         },
         "required": [
-          "file_id"
+          "file_ids"
         ],
-        "title": "ReadFileParams",
+        "title": "ReadFilesParams",
         "type": "object"
       },
       "return_schema": {
-        "description": "A windowed, character-addressed slice of any file's extracted text.",
-        "properties": {
-          "body": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Body",
-            "x-sdl-role": "content.body"
-          },
-          "body_format": {
-            "anyOf": [
-              {
-                "enum": [
-                  "md",
-                  "html",
-                  "plain",
-                  "rich"
+        "$defs": {
+          "FileText": {
+            "description": "A windowed, character-addressed slice of any file's extracted text.",
+            "properties": {
+              "body": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
                 ],
+                "default": null,
+                "title": "Body",
+                "x-sdl-role": "content.body"
+              },
+              "body_format": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "md",
+                      "html",
+                      "plain",
+                      "rich"
+                    ],
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Body Format",
+                "x-sdl-role": "content.body_format"
+              },
+              "raw_body": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Raw Body",
+                "x-sdl-role": "content.raw_body"
+              },
+              "id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "integer"
+                  }
+                ],
+                "title": "Id"
+              },
+              "title": {
+                "title": "Title",
                 "type": "string"
               },
-              {
-                "type": "null"
+              "kind": {
+                "default": "file_text",
+                "title": "Kind",
+                "type": "string"
+              },
+              "subtitle": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Subtitle"
+              },
+              "description": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Description"
+              },
+              "status": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Status"
+              },
+              "url": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Url"
+              },
+              "file_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "File Id"
+              },
+              "offset": {
+                "default": 0,
+                "title": "Offset",
+                "type": "integer"
+              },
+              "returned_chars": {
+                "default": 0,
+                "title": "Returned Chars",
+                "type": "integer"
+              },
+              "total_chars": {
+                "default": 0,
+                "title": "Total Chars",
+                "type": "integer"
+              },
+              "has_more": {
+                "default": false,
+                "title": "Has More",
+                "type": "boolean"
               }
+            },
+            "required": [
+              "id",
+              "title"
             ],
-            "default": null,
-            "title": "Body Format",
-            "x-sdl-role": "content.body_format"
+            "title": "FileText",
+            "type": "object",
+            "x-sdl": "entity"
+          }
+        },
+        "description": "Windows for 1..N files read at once.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/$defs/FileText"
+            },
+            "title": "Items",
+            "type": "array"
           },
-          "raw_body": {
+          "total": {
             "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Raw Body",
-            "x-sdl-role": "content.raw_body"
-          },
-          "id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
               {
                 "type": "integer"
-              }
-            ],
-            "title": "Id"
-          },
-          "title": {
-            "title": "Title",
-            "type": "string"
-          },
-          "kind": {
-            "default": "file_text",
-            "title": "Kind",
-            "type": "string"
-          },
-          "subtitle": {
-            "anyOf": [
-              {
-                "type": "string"
               },
               {
                 "type": "null"
               }
             ],
             "default": null,
-            "title": "Subtitle"
+            "title": "Total"
           },
-          "description": {
+          "page": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "integer"
               },
               {
                 "type": "null"
               }
             ],
             "default": null,
-            "title": "Description"
-          },
-          "status": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Status"
-          },
-          "url": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Url"
-          },
-          "file_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "File Id"
-          },
-          "offset": {
-            "default": 0,
-            "title": "Offset",
-            "type": "integer"
-          },
-          "returned_chars": {
-            "default": 0,
-            "title": "Returned Chars",
-            "type": "integer"
-          },
-          "total_chars": {
-            "default": 0,
-            "title": "Total Chars",
-            "type": "integer"
+            "title": "Page"
           },
           "has_more": {
             "default": false,
@@ -2068,12 +1979,257 @@
           }
         },
         "required": [
-          "id",
-          "title"
+          "items"
         ],
-        "title": "FileText",
+        "title": "FileTextList",
         "type": "object",
-        "x-sdl": "entity"
+        "x-sdl": "entity-list"
+      },
+      "event": "",
+      "background": false,
+      "long_running": false,
+      "scopes": [],
+      "owner_chat_tool": "tool_doc_reader_chat"
+    },
+    {
+      "name": "file_overview",
+      "description": "Quick, cheap overview of ONE OR MANY files at once (type, size, indexing status, short preview) — pass one or several file_ids. Use to decide which files to actually read.",
+      "action_type": "read",
+      "chain_callable": true,
+      "effects": [],
+      "id_projection": "",
+      "params_schema": {
+        "properties": {
+          "file_ids": {
+            "description": "One or MANY Google Drive file IDs (from list_files) to get a quick overview of, at once.",
+            "items": {
+              "type": "string"
+            },
+            "title": "File Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "file_ids"
+        ],
+        "title": "OverviewParams",
+        "type": "object"
+      },
+      "return_schema": {
+        "$defs": {
+          "FileOverview": {
+            "properties": {
+              "excerpt": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Excerpt",
+                "x-sdl-role": "content.excerpt"
+              },
+              "summary": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Summary",
+                "x-sdl-role": "content.summary"
+              },
+              "word_count": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Word Count",
+                "x-sdl-role": "content.word_count"
+              },
+              "reading_time_s": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Reading Time S",
+                "x-sdl-role": "content.reading_time_s"
+              },
+              "id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "integer"
+                  }
+                ],
+                "title": "Id"
+              },
+              "title": {
+                "title": "Title",
+                "type": "string"
+              },
+              "kind": {
+                "default": "file_overview",
+                "title": "Kind",
+                "type": "string"
+              },
+              "subtitle": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Subtitle"
+              },
+              "description": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Description"
+              },
+              "status": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Status"
+              },
+              "url": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Url"
+              },
+              "file_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "File Id"
+              },
+              "mime_type": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Mime Type"
+              },
+              "size_bytes": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Size Bytes"
+              }
+            },
+            "required": [
+              "id",
+              "title"
+            ],
+            "title": "FileOverview",
+            "type": "object",
+            "x-sdl": "entity"
+          }
+        },
+        "description": "Overviews for 1..N files at once.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/$defs/FileOverview"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Total"
+          },
+          "page": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Page"
+          },
+          "has_more": {
+            "default": false,
+            "title": "Has More",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "FileOverviewList",
+        "type": "object",
+        "x-sdl": "entity-list"
       },
       "event": "",
       "background": false,
@@ -2083,7 +2239,7 @@
     },
     {
       "name": "search_files",
-      "description": "Search the user's connected Drive files. Omit file_id to search across ALL files by meaning (semantic — returns the most relevant snippets, token-cheap). Give file_id to find an exact substring within ONE file. Use this instead of read_file when you only need to locate something.",
+      "description": "Search the user's Drive files. Omit file_ids to search ALL of them at once by MEANING (semantic — one pass over everything, token-cheap) — this is the way to 'study all my files'. Give file_ids to grep exact text across those specific files (in parallel). Prefer this over reading whole files when you just need to find something.",
       "action_type": "read",
       "chain_callable": true,
       "effects": [],
@@ -2095,11 +2251,13 @@
             "title": "Query",
             "type": "string"
           },
-          "file_id": {
-            "default": "",
-            "description": "Optional: restrict to ONE file (exact substring search in that file). Omit to search across ALL your files by meaning (semantic).",
-            "title": "File Id",
-            "type": "string"
+          "file_ids": {
+            "description": "Optional: restrict to these specific files (exact substring search across them, in parallel). Omit to search ALL your files by meaning (semantic).",
+            "items": {
+              "type": "string"
+            },
+            "title": "File Ids",
+            "type": "array"
           }
         },
         "required": [
@@ -2292,200 +2450,6 @@
         "title": "SearchResults",
         "type": "object",
         "x-sdl": "entity-list"
-      },
-      "event": "",
-      "background": false,
-      "long_running": false,
-      "scopes": [],
-      "owner_chat_tool": "tool_doc_reader_chat"
-    },
-    {
-      "name": "file_overview",
-      "description": "A quick, cheap look at one file — its type, size, indexing status and a short preview — without reading the whole thing. Use to answer 'what is this file' before deciding to read it.",
-      "action_type": "read",
-      "chain_callable": true,
-      "effects": [],
-      "id_projection": "",
-      "params_schema": {
-        "properties": {
-          "file_id": {
-            "description": "Google Drive file ID (from list_files).",
-            "title": "File Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "file_id"
-        ],
-        "title": "FileIdParams",
-        "type": "object"
-      },
-      "return_schema": {
-        "properties": {
-          "excerpt": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Excerpt",
-            "x-sdl-role": "content.excerpt"
-          },
-          "summary": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Summary",
-            "x-sdl-role": "content.summary"
-          },
-          "word_count": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Word Count",
-            "x-sdl-role": "content.word_count"
-          },
-          "reading_time_s": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Reading Time S",
-            "x-sdl-role": "content.reading_time_s"
-          },
-          "id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "integer"
-              }
-            ],
-            "title": "Id"
-          },
-          "title": {
-            "title": "Title",
-            "type": "string"
-          },
-          "kind": {
-            "default": "file_overview",
-            "title": "Kind",
-            "type": "string"
-          },
-          "subtitle": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Subtitle"
-          },
-          "description": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Description"
-          },
-          "status": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Status"
-          },
-          "url": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Url"
-          },
-          "file_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "File Id"
-          },
-          "mime_type": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Mime Type"
-          },
-          "size_bytes": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Size Bytes"
-          }
-        },
-        "required": [
-          "id",
-          "title"
-        ],
-        "title": "FileOverview",
-        "type": "object",
-        "x-sdl": "entity"
       },
       "event": "",
       "background": false,
