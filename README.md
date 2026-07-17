@@ -1,0 +1,182 @@
+# imperal-google-drive
+
+[![Imperal SDK](https://img.shields.io/badge/imperal--sdk-5.9.2-blue)](https://pypi.org/project/imperal-sdk/)
+[![Version](https://img.shields.io/badge/version-0.3.3-green)](https://github.com/SeeuWHM/imperal-google-drive/releases)
+[![License](https://img.shields.io/badge/license-LGPL--2.1-orange)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Imperal%20Cloud-purple)](https://panel.imperal.io)
+
+**Google Drive connector for [Imperal Cloud](https://panel.imperal.io).**
+
+Read and edit Google Docs, Google Sheets, and plain-text files — and read Google Slides — straight from the user's own Google Drive. Nothing is stored on Imperal beyond a `file_id` pointer and a search cache: content is fetched live and writes go straight back to the source document.
+
+---
+
+## What It Does
+
+Talk to it naturally:
+
+```
+"connect my Google Drive"
+"what's in my Q3 planning doc?"
+"search all my files for 'pricing tiers'"
+"replace 'draft' with 'final' in my proposal doc"
+"add these three companies as new rows in my leads sheet"
+"what's the total of column B in my budget sheet?"
+```
+
+Or use the panel — right sidebar shows connected Google accounts (switch/disconnect) and each account's own pool of picked files/folders with live indexing status.
+
+---
+
+## Capabilities
+
+### Connect & Files
+| Action | Description |
+|--------|-------------|
+| **connect_google_docs** | Start Google OAuth (drive.file scope) — connecting again adds another account |
+| **open_file_picker** | Link to the Google Picker to choose which files/folders Drive may access |
+| **register_picked_files** | Manual fallback if the Picker page shows a copy-paste box instead of auto-registering |
+| **list_files** | Files + folders for the active account, with type/size/indexing status |
+| **open_folder** | List a picked folder's contents (see Known limitations) |
+| **disconnect_files** | Remove one or many files from the connected pool (engine cache cleaned too) |
+
+### Accounts
+| Action | Description |
+|--------|-------------|
+| **list_accounts** | Every connected Google account, which is active, file count each |
+| **switch_account** | Change the active account — subsequent picks/reads/edits use its own file pool |
+| **disconnect_account** | Disconnect an account and forget its whole picked-files pool |
+
+### Read & Search (any file type, engine-cached)
+| Action | Description |
+|--------|-------------|
+| **read_files** | Read the text of one or many files at once (parallel) — full window for one, preview for several |
+| **file_overview** | Cheap type/size/status/preview for one or many files — decide what's worth reading |
+| **search_files** | Semantic search across ALL files (no ids), or exact grep across specific ones (with ids) |
+
+### Edit (native Google API, typed per format)
+| Action | Description |
+|--------|-------------|
+| **edit_document** | Google Docs: replace (find/replace), append, or overwrite |
+| **edit_spreadsheet** | Write a 2D value range into a Sheet (A1 notation) |
+| **get_spreadsheet_info** | Tab names + dimensions of a Sheet |
+| **read_spreadsheet_range** | Raw 2D values for a range or whole sheet |
+| **append_spreadsheet_rows** | Append rows after existing data — auto-finds the target range |
+| **spreadsheet_compute** | Exact sum/count/average/min/max over a range, computed in code |
+| **write_text_file** | Overwrite a genuinely text-based file (text/JSON/XML/YAML); binary formats are read-only |
+
+### Background
+| Action | Description |
+|--------|-------------|
+| **index_files** | Ingest picked files into the search/read cache, in parallel, off the chat request path |
+
+---
+
+## Architecture
+
+```
+imperal-google-drive/
+├── main.py               # Entry point — sys.modules purge + wires every module together
+├── app.py                # Extension + ChatExtension, Google OAuth (drive.file scope), app secrets, lifecycle hooks
+├── cache_models.py        # ctx.cache shape for the Picker OAuth token handoff
+├── schemas.py             # Pydantic parameter models for every @chat.function
+├── schemas_sdl.py         # SDL response/entity builders returned to the kernel
+├── skeleton.py            # Periodic status skeleton for the kernel's intent classifier
+├── panels.py              # Right-slot panel — accounts + picked files/folders list
+├── handlers_connect.py    # connect_google_docs, open_file_picker, register_picked_files, list_files, open_folder, disconnect_files
+├── handlers_accounts.py   # list_accounts, switch_account, disconnect_account
+├── handlers_content.py    # read_files, file_overview, search_files — CONTENT plane, engine-cached
+├── handlers_edit.py       # edit_document, edit_spreadsheet, spreadsheet tools, write_text_file — ACTION plane, native Google API
+├── handlers_index.py      # index_files + background indexing kicks (kick_index / kick_reindex)
+├── handlers_debug.py      # debug_folder — temporary diagnostic probe (see Known limitations)
+├── imperal.json           # Extension manifest (generated by `imperal build`)
+├── providers/             # Internal package — no imperal_sdk import at module load, unit-testable in isolation
+│   ├── helpers.py          # Constants, account resolution, picked-file lookup
+│   ├── google_api.py       # Drive/Docs/Sheets HTTP calls
+│   ├── token_refresh.py    # OAuth access-token refresh
+│   ├── file_types.py       # mime → fetch URL / export target / change-key mapping
+│   ├── extractor.py        # doc-extractor-service client (ingest/read/search/delete)
+│   ├── lifecycle.py        # File state machine, quotas, cold-eviction, forget
+│   ├── edit_ops.py         # Native Google API writes (Docs/Sheets/text)
+│   ├── content_ops.py      # read_files/file_overview/search_files logic
+│   ├── spreadsheet_math.py # Exact sum/count/average/min/max
+│   └── text_windows.py     # Offset/limit pagination for long files
+└── tests/                 # 91 pytest — SDK-free FakeCtx/FakeHttp/FakeStore doubles for providers/*
+```
+
+**Two planes, split by intent, not file type:**
+- **CONTENT** (read/understand) — universal across every file type via the shared `doc-extractor-service` cache: `read_files` / `search_files` / `file_overview`. Each takes 1..N `file_ids` and fans out in parallel internally, since the kernel runs multi-tool calls sequentially.
+- **ACTION** (change/compute exactly) — native Google API, typed per data model (Docs batchUpdate / Sheets values / plain-file overwrite) because a doc tree, a sheet grid, and a text blob simply aren't interchangeable.
+
+```
+User (chat)
+    ↓ OAuth2 (drive.file scope) via the platform's unified Google OAuth
+Google Accounts → Auth Gateway callback → tokens in ctx.store["docreader_accounts"]
+    ↓
+Picker → HMAC-signed staged access token → picked files register as status=pending
+    ↓
+Extension → HTTP → doc-extractor-service (api-server, :8547, public /doc-extractor/)
+    ingest (extract + embed) → Postgres+pgvector · text cache → Nextcloud
+    ↓
+read_files / search_files / file_overview      → served from the engine cache
+edit_document / edit_spreadsheet / write_text_file → native Google API, then background re-index
+```
+
+---
+
+## Function Reference
+
+| Function | Type | Description |
+|----------|------|--------------|
+| `connect_google_docs` | read | Start Google Drive OAuth |
+| `open_file_picker` | read | Link to the Google Picker |
+| `register_picked_files` | write | Manual fallback registration |
+| `list_files` | read | List connected files + folders with status |
+| `open_folder` | read | List a picked folder's contents |
+| `disconnect_files` | write | Remove file(s) from the connected pool |
+| `list_accounts` | read | List connected Google accounts |
+| `switch_account` | write | Change the active account |
+| `disconnect_account` | destructive | Disconnect an account + forget its files |
+| `read_files` | read | Read text of one or many files (parallel) |
+| `file_overview` | read | Cheap overview of one or many files |
+| `search_files` | read | Semantic search (all files) or exact grep (given ids) |
+| `edit_document` | write | Google Docs replace/append/overwrite |
+| `edit_spreadsheet` | write | Write values into a Sheet range |
+| `get_spreadsheet_info` | read | Sheet tab names + dimensions |
+| `read_spreadsheet_range` | read | Raw 2D values for a range |
+| `append_spreadsheet_rows` | write | Append rows after existing data |
+| `spreadsheet_compute` | read | Exact sum/count/average/min/max over a range |
+| `write_text_file` | write | Overwrite a text-based file |
+| `index_files` | read (background) | Ingest picked files into the search/read cache |
+| `debug_folder` | read (diagnostic) | Temporary probe of folder access under drive.file — see Known limitations |
+
+---
+
+## Known limitations
+
+- **Folder contents are not actually reachable yet.** A folder can be picked and appears in `list_files`, and `open_folder` is implemented — but Google's `drive.file` scope does not return a folder's children via `files.list` (confirmed empirically with `debug_folder`: 0 results across every listing strategy tried, even though the folder object itself is granted). Every option that would fix this cleanly (broader `drive.readonly`/`drive` scope, a service account, Workspace-only internal apps, Domain-Wide Delegation, an Apps Script bridge) was evaluated and rejected — each either requires Google's CASA verification, locks the extension to one Google Workspace domain, or forces the user through a manual technical setup step. Until a solution that works for free, for any Google account, without user gymnastics turns up, picking individual files directly (not whole folders) is the reliable path.
+- **`debug_folder`** exists only to investigate the limitation above and will be removed once folders are resolved — treat it as internal, not a stable tool.
+- **Binary formats are read-only.** PDF/DOCX/XLSX/PPTX can be read and searched but not edited; only Google Docs, Google Sheets, and genuinely text-based files (text/JSON/XML/YAML) can be written back.
+- **Per-account quotas.** 200 files and 1 GB per connected Google account; files untouched for 14 days are evicted from the search cache (self-heals on next access, nothing is lost from Drive itself).
+- A shared Google OAuth Client (`google_client_id`/`google_client_secret`), a Picker API key, and an HMAC secret shared with `doc-extractor-service` must be provisioned as app secrets before any user can connect.
+
+---
+
+## Development
+
+```bash
+python3 -m py_compile main.py app.py handlers_*.py panels.py skeleton.py schemas.py schemas_sdl.py cache_models.py providers/*.py
+
+python3 -m pytest        # 91 tests — providers/* logic, SDK-free fakes in tests/conftest.py
+
+python -m imperal_sdk.cli.main build .      # regenerate imperal.json
+python -m imperal_sdk.cli.main validate .   # check against SDK federal rules
+```
+
+---
+
+## Built with
+
+- [imperal-sdk](https://github.com/imperalcloud/imperal-sdk) 5.9.2
+- [Imperal Cloud](https://panel.imperal.io)
+- [doc-extractor-service](https://panel.imperal.io) — shared ingest/search engine (extract, embed, cache) behind this and other file-reading extensions
