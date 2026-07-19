@@ -1,6 +1,6 @@
 {
   "manifest_schema_version": 3,
-  "sdk_version": "5.9.2",
+  "sdk_version": "5.9.12",
   "app_id": "google-drive-connector",
   "version": "0.3.3",
   "name": "Google Drive Connector",
@@ -3877,7 +3877,10 @@
       "panel_id": "doc_files",
       "slot": "right",
       "title": "Google Drive",
-      "tree": {}
+      "tree": {},
+      "icon": "FileText",
+      "refresh": "manual",
+      "center_overlay": false
     }
   ]
 }
