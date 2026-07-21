@@ -1,6 +1,6 @@
 # imperal-google-drive
 
-[![Imperal SDK](https://img.shields.io/badge/imperal--sdk-5.9.2-blue)](https://pypi.org/project/imperal-sdk/)
+[![Imperal SDK](https://img.shields.io/badge/imperal--sdk-5.9.12-blue)](https://pypi.org/project/imperal-sdk/)
 [![Version](https://img.shields.io/badge/version-0.3.3-green)](https://github.com/SeeuWHM/imperal-google-drive/releases)
 [![License](https://img.shields.io/badge/license-LGPL--2.1-orange)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Imperal%20Cloud-purple)](https://panel.imperal.io)
@@ -177,6 +177,6 @@ python -m imperal_sdk.cli.main validate .   # check against SDK federal rules
 
 ## Built with
 
-- [imperal-sdk](https://github.com/imperalcloud/imperal-sdk) 5.9.2
+- [imperal-sdk](https://github.com/imperalcloud/imperal-sdk) 5.9.12
 - [Imperal Cloud](https://panel.imperal.io)
 - [doc-extractor-service](https://panel.imperal.io) — shared ingest/search engine (extract, embed, cache) behind this and other file-reading extensions
