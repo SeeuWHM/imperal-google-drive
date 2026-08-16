@@ -118,6 +118,14 @@ class IndexResult(sdl.Entity):
     failed: int = 0
 
 
+class BulkFileActionResult(sdl.Entity):
+    """Result of a panel-only multi-select bulk action (remove / retry_index)."""
+    kind: str = "bulk_file_action"
+    action: str | None = None
+    affected: int = 0
+    failed: int = 0
+
+
 class SpreadsheetInfo(sdl.Entity):
     """A Google Sheet's tab names + dimensions — structured access for editing."""
     kind: str = "spreadsheet_info"
@@ -266,6 +274,13 @@ def build_compute_result(data: dict) -> ComputeResult:
 
 def build_index_result(indexed: int, failed: int) -> IndexResult:
     return IndexResult(id="index", title=f"Indexed {indexed} file(s)", indexed=indexed, failed=failed)
+
+
+def build_bulk_file_action_result(action: str, affected: int, failed: int = 0) -> BulkFileActionResult:
+    return BulkFileActionResult(
+        id=f"bulk:{action}", title=f"{action}: {affected} file(s)",
+        action=action, affected=affected, failed=failed,
+    )
 
 
 def build_spreadsheet_info(file_id: str, sheets: list[dict]) -> SpreadsheetInfo:

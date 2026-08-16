@@ -37,6 +37,16 @@ class DisconnectFilesParams(BaseModel):
     file_ids: list[str] = Field(description="File IDs (from list_files) to remove in one bulk action.")
 
 
+class FileBulkActionParams(BaseModel):
+    """Panel UI action dispatcher — called by the file list's bulk toolbar
+    (multi-select checkboxes), not LLM chat. ui.List injects selected item
+    ids as 'message_ids' (SDK-wide convention, same field name mail-client's
+    inbox bulk bar uses) — kept as-is here rather than renamed, so the
+    renderer's injection works without a bespoke prop."""
+    action: Literal["remove", "retry_index"] = Field(description="Bulk action to run on the selected files.")
+    message_ids: list[str] = Field(default_factory=list, description="Selected file IDs (injected by the panel's multi-select).")
+
+
 # ── CONTENT plane ─────────────────────────────────────────────────────────────
 
 

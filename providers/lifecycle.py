@@ -265,6 +265,34 @@ async def forget_account_files(ctx, account_email: str) -> int:
     return len(files)
 
 
+async def reindex_files(ctx, file_ids: list[str]) -> dict:
+    """BULK (re)index: force ingest of specific already-picked files, in
+    PARALLEL (bounded by _INDEX_CONCURRENCY). Used by the panel's bulk 'Retry
+    indexing' action — lets a user recover several 'failed' files in one tap
+    instead of one at a time. Unknown ids and folders (not readable) are
+    silently skipped. Returns {"indexed": n, "failed": n}."""
+    acc = await _active_account(ctx)
+    acc = await _refresh_token_if_needed(ctx, acc)
+    by_id = {f["file_id"]: f for f in await _all_picked_files(ctx, _account_email(acc))}
+    targets = [
+        by_id[fid] for fid in file_ids
+        if fid in by_id and by_id[fid].get("mime_type") != GOOGLE_FOLDER_MIME
+    ]
+    sem = asyncio.Semaphore(_INDEX_CONCURRENCY)
+
+    async def _one(rec) -> bool:
+        async with sem:
+            try:
+                await index_record(ctx, acc, rec)
+                return True
+            except Exception:  # noqa: BLE001
+                return False
+
+    results = await asyncio.gather(*(_one(r) for r in targets))
+    indexed = sum(1 for ok in results if ok)
+    return {"indexed": indexed, "failed": len(results) - indexed}
+
+
 async def list_entries(ctx) -> list[dict]:
     """The active account's connected entries — files AND folders — each tagged
     is_folder, for the panel and the list_files tool. [] if no account."""

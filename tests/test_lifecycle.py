@@ -417,3 +417,62 @@ async def test_list_entries_tags_folders(make_ctx):
     by_id = {e["file_id"]: e for e in entries}
     assert by_id["F"]["is_folder"] is False
     assert by_id["D"]["is_folder"] is True
+
+
+# ── reindex_files (panel bulk 'Retry indexing') ────────────────────────────────
+
+
+async def test_reindex_files_indexes_selected_and_skips_folders(make_ctx, monkeypatch):
+    ctx = make_ctx()
+    ctx.store.seed(FILES_COLLECTION, [
+        {"file_id": "F1", "account_email": "a@b.com", "mime_type": PDF, "status": lifecycle.FAILED},
+        {"file_id": "F2", "account_email": "a@b.com", "mime_type": PDF, "status": lifecycle.FAILED},
+        {"file_id": "D1", "account_email": "a@b.com", "mime_type": "application/vnd.google-apps.folder"},
+    ])
+    seen = []
+
+    async def fake_active(ctx):
+        return make_acc()
+
+    async def fake_index(ctx, acc, rec):
+        seen.append(rec["file_id"])
+        rec["status"] = lifecycle.READY
+        return rec
+
+    monkeypatch.setattr(lifecycle, "_active_account", fake_active)
+    monkeypatch.setattr(lifecycle, "index_record", fake_index)
+    # Selection includes a folder id and an id that doesn't exist at all —
+    # both must be silently skipped, never crash the batch.
+    res = await lifecycle.reindex_files(ctx, ["F1", "F2", "D1", "GHOST"])
+    assert res == {"indexed": 2, "failed": 0}
+    assert set(seen) == {"F1", "F2"}
+
+
+async def test_reindex_files_counts_partial_failure(make_ctx, monkeypatch):
+    ctx = make_ctx()
+    ctx.store.seed(FILES_COLLECTION, [
+        {"file_id": "F1", "account_email": "a@b.com", "mime_type": PDF, "status": lifecycle.FAILED},
+        {"file_id": "F2", "account_email": "a@b.com", "mime_type": PDF, "status": lifecycle.FAILED},
+    ])
+
+    async def fake_active(ctx):
+        return make_acc()
+
+    async def fake_index(ctx, acc, rec):
+        if rec["file_id"] == "F2":
+            raise RuntimeError("boom")
+        return rec
+
+    monkeypatch.setattr(lifecycle, "_active_account", fake_active)
+    monkeypatch.setattr(lifecycle, "index_record", fake_index)
+    assert await lifecycle.reindex_files(ctx, ["F1", "F2"]) == {"indexed": 1, "failed": 1}
+
+
+async def test_reindex_files_empty_selection(make_ctx, monkeypatch):
+    ctx = make_ctx()
+
+    async def fake_active(ctx):
+        return make_acc()
+
+    monkeypatch.setattr(lifecycle, "_active_account", fake_active)
+    assert await lifecycle.reindex_files(ctx, []) == {"indexed": 0, "failed": 0}

@@ -1,8 +1,8 @@
 {
   "manifest_schema_version": 3,
-  "sdk_version": "5.9.22",
+  "sdk_version": "5.9.12",
   "app_id": "google-drive-connector",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "name": "Google Drive Connector",
   "description": "Read and edit Google Docs, Google Sheets, and plain text files, and read Google Slides, stored in the user's Google Drive. Nothing is stored on Imperal — content is fetched live and written straight back to the source.",
   "icon": "google-drive-connector.svg",
@@ -3616,80 +3616,42 @@
       "owner_chat_tool": "tool_doc_reader_chat"
     },
     {
-      "name": "debug_folder",
-      "description": "Diagnostic: probe what the drive.file grant can actually see inside a folder (multiple strategies + folder capabilities). Temporary tool for debugging folder access.",
-      "action_type": "read",
+      "name": "file_bulk_action",
+      "description": "Panel UI bulk dispatcher for the multi-selected files in the file list — called by the panel's bulk toolbar, not LLM chat. From chat use disconnect_files() or index_files() instead.",
+      "action_type": "write",
       "chain_callable": true,
       "effects": [],
       "id_projection": "",
       "params_schema": {
+        "description": "Panel UI action dispatcher — called by the file list's bulk toolbar\n(multi-select checkboxes), not LLM chat. ui.List injects selected item\nids as 'message_ids' (SDK-wide convention, same field name mail-client's\ninbox bulk bar uses) — kept as-is here rather than renamed, so the\nrenderer's injection works without a bespoke prop.",
         "properties": {
-          "folder_id": {
-            "description": "Google Drive folder ID (from list_files) whose contents to list.",
-            "title": "Folder Id",
+          "action": {
+            "description": "Bulk action to run on the selected files.",
+            "enum": [
+              "remove",
+              "retry_index"
+            ],
+            "title": "Action",
             "type": "string"
+          },
+          "message_ids": {
+            "description": "Selected file IDs (injected by the panel's multi-select).",
+            "items": {
+              "type": "string"
+            },
+            "title": "Message Ids",
+            "type": "array"
           }
         },
         "required": [
-          "folder_id"
+          "action"
         ],
-        "title": "FolderParams",
+        "title": "FileBulkActionParams",
         "type": "object"
       },
       "return_schema": {
+        "description": "Result of a panel-only multi-select bulk action (remove / retry_index).",
         "properties": {
-          "excerpt": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Excerpt",
-            "x-sdl-role": "content.excerpt"
-          },
-          "summary": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Summary",
-            "x-sdl-role": "content.summary"
-          },
-          "word_count": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Word Count",
-            "x-sdl-role": "content.word_count"
-          },
-          "reading_time_s": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Reading Time S",
-            "x-sdl-role": "content.reading_time_s"
-          },
           "id": {
             "anyOf": [
               {
@@ -3706,7 +3668,7 @@
             "type": "string"
           },
           "kind": {
-            "default": "file_overview",
+            "default": "bulk_file_action",
             "title": "Kind",
             "type": "string"
           },
@@ -3758,7 +3720,7 @@
             "default": null,
             "title": "Url"
           },
-          "file_id": {
+          "action": {
             "anyOf": [
               {
                 "type": "string"
@@ -3768,42 +3730,28 @@
               }
             ],
             "default": null,
-            "title": "File Id"
+            "title": "Action"
           },
-          "mime_type": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Mime Type"
+          "affected": {
+            "default": 0,
+            "title": "Affected",
+            "type": "integer"
           },
-          "size_bytes": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Size Bytes"
+          "failed": {
+            "default": 0,
+            "title": "Failed",
+            "type": "integer"
           }
         },
         "required": [
           "id",
           "title"
         ],
-        "title": "FileOverview",
+        "title": "BulkFileActionResult",
         "type": "object",
         "x-sdl": "entity"
       },
-      "event": "",
+      "event": "file.bulk_action",
       "background": false,
       "long_running": false,
       "scopes": [],
@@ -3813,7 +3761,7 @@
   "signals": [],
   "schedules": [],
   "required_scopes": [],
-  "icon_size_bytes": 1495,
+  "icon_size_bytes": 756,
   "oauth": [
     {
       "provider": "google",
@@ -3891,7 +3839,16 @@
       "title": "Google Drive",
       "tree": {},
       "icon": "FileText",
-      "refresh": "manual",
+      "refresh": "on_event:account.switched,file.connected,file.disconnected,file.bulk_action,file.edited",
+      "center_overlay": false
+    },
+    {
+      "panel_id": "doc_overview",
+      "slot": "left",
+      "title": "Google Drive",
+      "tree": {},
+      "icon": "HardDrive",
+      "refresh": "on_event:account.switched,account.disconnected,file.connected,file.disconnected,file.bulk_action",
       "center_overlay": false
     }
   ]
