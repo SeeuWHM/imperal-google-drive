@@ -77,7 +77,8 @@ async def build_overview_panel(ctx, **kwargs) -> ui.UINode:
             ui.Stat(label="Storage", value=f"{gb_used:.2f} GB", icon="HardDrive", color="green"),
         ], columns=1),
         ui.Divider(label="Accounts"),
-        ui.List(items=_account_items(rows), empty_text="No accounts yet"),
+        ui.List(items=_account_items(rows)) if rows
+        else ui.Empty(message="No accounts yet", icon="User"),
         ui.Button("Connect another account", icon="Plus", variant="outline",
                   on_click=ui.Call("connect_google_docs")),
     ], gap=3, className="pb-4")

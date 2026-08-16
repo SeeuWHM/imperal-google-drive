@@ -151,10 +151,8 @@ async def build_files_panel(ctx, **kwargs) -> ui.UINode:
         ui.List(
             items=_entry_items(entries),
             searchable=True,
-            search_placeholder="Search by file name",
             selectable=True,
             bulk_actions=bulk_actions,
-            empty_text="No files picked for this account yet",
         ) if entries
         else ui.Empty(message="No files picked for this account yet", icon="FileText")
     )
