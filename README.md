@@ -1,7 +1,7 @@
 # imperal-google-drive
 
-[![Imperal SDK](https://img.shields.io/badge/imperal--sdk-5.9.12-blue)](https://pypi.org/project/imperal-sdk/)
-[![Version](https://img.shields.io/badge/version-0.3.3-green)](https://github.com/SeeuWHM/imperal-google-drive/releases)
+[![Imperal SDK](https://img.shields.io/badge/imperal--sdk-5.9.22-blue)](https://pypi.org/project/imperal-sdk/)
+[![Version](https://img.shields.io/badge/version-0.3.4-green)](https://github.com/SeeuWHM/imperal-google-drive/releases)
 [![License](https://img.shields.io/badge/license-LGPL--2.1-orange)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Imperal%20Cloud-purple)](https://panel.imperal.io)
 
