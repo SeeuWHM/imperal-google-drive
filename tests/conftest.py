@@ -134,6 +134,16 @@ class FakeCtx:
         if secrets is not None:
             default_secrets.update(secrets)
         self.secrets = FakeSecrets(default_secrets)
+        self.background_tasks = []  # [(coro, kwargs)] — spawned, NOT awaited (mirrors real fire-and-forget)
+
+    async def background_task(self, coro, *, long_running: bool = False, name: str = ""):
+        """Records the spawn WITHOUT awaiting `coro` — the real kernel detaches
+        it via asyncio.create_task and returns immediately; a test asserting
+        a handler is fast must see the same non-blocking behaviour here.
+        Callers that want the outcome can await ctx.background_tasks[i][0]
+        themselves."""
+        self.background_tasks.append((coro, {"long_running": long_running, "name": name}))
+        return f"task-{len(self.background_tasks)}"
 
 
 @pytest.fixture

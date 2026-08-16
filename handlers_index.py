@@ -54,6 +54,29 @@ async def _reindex_one_job(ctx, file_id: str) -> ActionResult:
         return ActionResult.error(f"re-index failed: {e}", retryable=True)
 
 
+async def _bulk_reindex_job(ctx, file_ids: list[str]) -> ActionResult:
+    """Background body for the panel's 'Retry indexing' bulk button.
+
+    MUST run off the request path (added 2026-08-16): ingest() now polls the
+    engine up to 90s per file waiting for a terminal status (fixing the
+    'could not index this file (None)' race), so a SYNCHRONOUS bulk retry
+    over N files can take up to 90s * ceil(N/_INDEX_CONCURRENCY) — that's
+    exactly what made the panel feel hung/slow to answer. Same fire-and-forget
+    shape as _index_pending_job; the result lands as a follow-up chat message
+    instead of blocking the click.
+    """
+    res = await lifecycle.reindex_files(ctx, file_ids)
+    indexed, failed, errors = res["indexed"], res["failed"], res.get("errors") or []
+    if indexed == 0 and failed > 0:
+        reasons = "; ".join(f"{e['name']}: {e['error']}" for e in errors[:3])
+        return ActionResult.error(f"Re-index failed for all {failed} file(s) — {reasons}", retryable=True)
+    return ActionResult.success(
+        data=build_index_result(indexed, failed),
+        summary=f"Re-indexed {indexed} file(s)" + (f", {failed} failed." if failed else "."),
+        refresh_panels=["doc_files"],
+    )
+
+
 # ── fire-and-forget kicks (call from any handler) ─────────────────────────────
 
 
@@ -73,6 +96,17 @@ async def kick_reindex(ctx, file_id: str) -> None:
         await ctx.background_task(_reindex_one_job(ctx, file_id), long_running=True, name="gdrive-reindex")
     except Exception as e:  # noqa: BLE001
         log.warning("could not start background re-index: %s", e)
+
+
+async def kick_bulk_reindex(ctx, file_ids: list[str]) -> None:
+    """Fire-and-forget the panel's bulk 'Retry indexing' — see _bulk_reindex_job
+    for why this MUST NOT run on the request path."""
+    try:
+        await ctx.background_task(
+            _bulk_reindex_job(ctx, file_ids), long_running=True, name="gdrive-bulk-reindex",
+        )
+    except Exception as e:  # noqa: BLE001
+        log.warning("could not start background bulk re-index: %s", e)
 
 
 # ── @chat.function ────────────────────────────────────────────────────────────

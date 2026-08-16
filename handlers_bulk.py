@@ -20,6 +20,7 @@ import logging
 from imperal_sdk.chat.action_result import ActionResult
 
 from app import chat
+from handlers_index import kick_bulk_reindex
 from providers import lifecycle
 from schemas import FileBulkActionParams
 from schemas_sdl import BulkFileActionResult, build_bulk_file_action_result
@@ -48,18 +49,17 @@ async def fn_file_bulk_action(ctx, params: FileBulkActionParams) -> ActionResult
                 refresh_panels=["doc_files"],
             )
         else:  # retry_index
-            res = await lifecycle.reindex_files(ctx, ids)
-            indexed, failed, errors = res["indexed"], res["failed"], res.get("errors") or []
-            if indexed == 0 and failed > 0:
-                reasons = "; ".join(f"{e['name']}: {e['error']}" for e in errors[:3])
-                return ActionResult.error(
-                    f"Re-index failed for all {failed} file(s) — {reasons}",
-                    retryable=True,
-                )
+            # Fire-and-forget (2026-08-16): ingest() now polls the engine up
+            # to 90s PER FILE for a terminal status (fixed the "could not
+            # index this file (None)" race) — running that synchronously here
+            # made a multi-file retry take up to minutes, which is exactly
+            # what made the panel feel hung. The click now returns instantly;
+            # the real indexed/failed result is delivered as a follow-up chat
+            # message + a doc_files panel refresh once the job finishes.
+            await kick_bulk_reindex(ctx, ids)
             return ActionResult.success(
-                data=build_bulk_file_action_result("retry_index", indexed, failed),
-                summary=f"Re-indexed {indexed} file(s)" + (f", {failed} failed." if failed else "."),
-                refresh_panels=["doc_files"],
+                data=build_bulk_file_action_result("retry_index", 0, 0),
+                summary=f"Re-indexing {len(ids)} file(s) in the background — you'll get an update shortly.",
             )
     except Exception as e:
         return ActionResult.error(str(e), retryable=False)
