@@ -3813,12 +3813,15 @@
   "signals": [],
   "schedules": [],
   "required_scopes": [],
+  "icon_size_bytes": 1495,
   "oauth": [
     {
       "provider": "google",
       "collection": "docreader_accounts",
       "scopes": [
-        "https://www.googleapis.com/auth/drive.file"
+        "https://www.googleapis.com/auth/drive.file",
+        "openid",
+        "https://www.googleapis.com/auth/userinfo.email"
       ],
       "has_hook": false
     }

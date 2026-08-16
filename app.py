@@ -57,10 +57,24 @@ chat = ChatExtension(
 # as the redirect URI in the Google console — it derives from the app_id, which
 # is google-drive-connector to match the Dev Portal profile; the git repo name
 # imperal-google-drive is NOT the app_id). Same pattern as mail-client.
+# openid + userinfo.email (added 2026-08-16, same fix already proven in
+# gsc-connector/app.py for the identical symptom): drive.file alone does NOT
+# hand Google's OAuth response an email address, so the platform gateway
+# cannot identify/label the account on connect ("Couldn't identify the
+# account... missing openid/email permission" — reproduced live). These two
+# scopes are why gsc-connector's gateway callback CAN capture the address;
+# doc-reader was missing them entirely until now. helpers.py's own
+# _hydrate_missing_emails() (about.get, allowed under drive.file) remains as
+# a second, independent path to fill in "unknown" for any already-connected
+# account that predates this fix.
 ext.oauth(
     "google",
     collection="docreader_accounts",
-    scopes=["https://www.googleapis.com/auth/drive.file"],
+    scopes=[
+        "https://www.googleapis.com/auth/drive.file",
+        "openid",
+        "https://www.googleapis.com/auth/userinfo.email",
+    ],
 )
 
 # ── App-scope secrets (scope="app"): one shared Google OAuth Client for all
