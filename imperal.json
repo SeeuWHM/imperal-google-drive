@@ -1,6 +1,6 @@
 {
   "manifest_schema_version": 3,
-  "sdk_version": "5.9.12",
+  "sdk_version": "5.9.22",
   "app_id": "google-drive-connector",
   "version": "0.3.3",
   "name": "Google Drive Connector",
@@ -3870,6 +3870,15 @@
       "max_bytes": 4096,
       "scope": "app",
       "env_fallback": "IMPERAL_APPSECRET_DOCREADER_PICKER_HMAC_SECRET"
+    },
+    {
+      "name": "doc_extractor_token",
+      "description": "Bearer token for the doc-extractor-service engine (developer-owned; shared secret, not per-user)",
+      "required": true,
+      "write_mode": "user",
+      "max_bytes": 4096,
+      "scope": "app",
+      "env_fallback": "IMPERAL_APPSECRET_DOCREADER_DOC_EXTRACTOR_TOKEN"
     }
   ],
   "panels": [

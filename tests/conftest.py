@@ -112,11 +112,28 @@ class FakeUser:
         self.imperal_id = imperal_id
 
 
+class FakeSecrets:
+    """In-memory stand-in for ctx.secrets. Defaults doc_extractor_token to a
+    fixed value so existing extractor tests keep asserting request shape
+    without every one of them having to know about auth explicitly; a test
+    that wants to exercise the missing-token path passes secrets={} to
+    make_ctx."""
+    def __init__(self, values=None):
+        self._values = dict(values or {})
+
+    async def get(self, name):
+        return self._values.get(name)
+
+
 class FakeCtx:
-    def __init__(self, responses=None, imperal_id="user-123", with_user=True):
+    def __init__(self, responses=None, imperal_id="user-123", with_user=True, secrets=None):
         self.http = FakeHttp(responses or [])
         self.store = FakeStore()
         self.user = FakeUser(imperal_id) if with_user else None
+        default_secrets = {"doc_extractor_token": "test-engine-token"}
+        if secrets is not None:
+            default_secrets.update(secrets)
+        self.secrets = FakeSecrets(default_secrets)
 
 
 @pytest.fixture
@@ -128,6 +145,6 @@ def resp():
 @pytest.fixture
 def make_ctx():
     """Factory: make_ctx([resp(...), ConnectionError(...), ...])."""
-    def _make(responses=None, imperal_id="user-123", with_user=True):
-        return FakeCtx(responses, imperal_id, with_user)
+    def _make(responses=None, imperal_id="user-123", with_user=True, secrets=None):
+        return FakeCtx(responses, imperal_id, with_user, secrets)
     return _make

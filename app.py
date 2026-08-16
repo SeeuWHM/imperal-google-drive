@@ -12,6 +12,7 @@ from imperal_sdk import Extension
 from imperal_sdk.chat import ChatExtension
 from imperal_sdk.secrets.spec import SecretSpec
 
+from providers.extractor import DOC_EXTRACTOR_TOKEN_SECRET
 from providers.helpers import _all_accounts
 
 log = logging.getLogger("doc_reader")
@@ -81,6 +82,14 @@ _APP_SECRETS = [
     # invisible to this extension's server-side refresh token — different grant
     # lineage). Must match exactly on both sides.
     ("picker_hmac_secret", "HMAC key shared with doc-extractor-service for the Picker OAuth token handoff", "IMPERAL_APPSECRET_DOCREADER_PICKER_HMAC_SECRET"),
+    # Bearer token for the doc-extractor-service engine's data endpoints
+    # (/v1/documents, /v1/search) — REQUIRED since 2026-07-19, when that engine
+    # turned on auth (before that date this extension worked with no header at
+    # all, silently, because auth there was a no-op). This extension carries its
+    # OWN token (server config key api_auth_token_gdrive), independent of
+    # file-reader's — added 2026-08-16 after a full-repo audit found every
+    # content call had been failing with a hard 401 in prod since that rollout.
+    (DOC_EXTRACTOR_TOKEN_SECRET, "Bearer token for the doc-extractor-service engine (developer-owned; shared secret, not per-user)", "IMPERAL_APPSECRET_DOCREADER_DOC_EXTRACTOR_TOKEN"),
 ]
 for _name, _desc, _fb in _APP_SECRETS:
     ext._secrets[_name] = SecretSpec(

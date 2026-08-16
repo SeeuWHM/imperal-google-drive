@@ -198,3 +198,36 @@ async def test_4xx_not_retried(make_ctx, resp):
     with pytest.raises(RuntimeError):
         await extractor.search(ctx, "q")
     assert len(ctx.http.calls) == 1  # 4xx returned immediately, raise_for_status raises
+
+
+# ── engine bearer auth (added 2026-08-16 — the engine has required this on
+# every /v1/documents & /v1/search call since 2026-07-19; this extension sent
+# no header at all before this fix, a hard 401 in prod for every call) ────────
+
+
+async def test_every_call_sends_bearer_header_from_secret(make_ctx, resp):
+    doc = {"document_id": 7, "status": "processed"}
+    ctx = make_ctx([resp(200, {"data": {"documents": [doc]}})], secrets={"doc_extractor_token": "shh-secret"})
+    await extractor.ingest(ctx, fetch_url="u", auth="t", content_key="c", filename="f")
+    _, _, kwargs = ctx.http.calls[0]
+    assert kwargs["headers"] == {"Authorization": "Bearer shh-secret"}
+
+
+async def test_missing_engine_token_raises_before_any_http_call(make_ctx):
+    ctx = make_ctx([], secrets={"doc_extractor_token": ""})
+    with pytest.raises(RuntimeError, match="doc_extractor_token"):
+        await extractor.search(ctx, "q")
+    assert len(ctx.http.calls) == 0  # fails loud, never sends an unauthenticated request
+
+
+async def test_read_text_and_overview_and_delete_all_send_bearer_header(make_ctx, resp):
+    ctx = make_ctx([
+        resp(200, {"data": {"text": "hi", "offset": 0, "limit": 10, "total_chars": 2, "truncated": False}}),
+        resp(200, {"data": {"document_id": 7, "preview": "p", "status": "processed"}}),
+        resp(200, {"data": {"deleted": True}}),
+    ], secrets={"doc_extractor_token": "tok-abc"})
+    await extractor.read_text(ctx, 7)
+    await extractor.overview(ctx, 7)
+    await extractor.delete(ctx, 7)
+    for _, _, kwargs in ctx.http.calls:
+        assert kwargs["headers"] == {"Authorization": "Bearer tok-abc"}

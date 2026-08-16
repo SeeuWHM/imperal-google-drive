@@ -26,6 +26,17 @@ _SEARCH_URL = f"{DOC_EXTRACTOR_URL}/v1/search"
 # Engine statuses that mean "content is available to read/search".
 READY_STATES = ("processed", "cached")
 
+# app-secret name declared in app.py — the doc-extractor-service engine has
+# required `Authorization: Bearer <token>` on every /v1/documents & /v1/search
+# call since 2026-07-19 (server config key api_auth_token_gdrive, independent
+# of file-reader's own token). This extension sent NO auth header at all
+# until 2026-08-16 — every ingest/read/search/overview/delete call had been a
+# hard 401 in prod since that rollout (found via full-repo audit; confirmed
+# live: zero source='gdrive' rows ever existed in the engine's documents
+# table). Missing/empty means calls will keep failing with a clear 401 error
+# instead of silently doing nothing.
+DOC_EXTRACTOR_TOKEN_SECRET = "doc_extractor_token"
+
 
 def imperal_id(ctx) -> str:
     """Canonical user id scoping ALL engine storage. Missing → hard error: we
@@ -37,10 +48,31 @@ def imperal_id(ctx) -> str:
     return uid
 
 
+async def _auth_headers(ctx) -> dict:
+    """Bearer header for the engine's own auth (SEPARATE from the Drive OAuth
+    token passed as the `auth` field in ingest() — that one is handed to the
+    engine so IT can fetch the file from Drive; this one authenticates THIS
+    EXTENSION to the engine itself). Fails loud and specific rather than
+    silently sending no header and getting a bare, unexplained 401."""
+    token = await ctx.secrets.get(DOC_EXTRACTOR_TOKEN_SECRET)
+    if not token:
+        raise RuntimeError(
+            "doc-extractor engine token not configured (doc_extractor_token app secret is "
+            "missing) — the engine has required auth since 2026-07-19; content calls cannot work "
+            "until this secret is set."
+        )
+    return {"Authorization": f"Bearer {token}"}
+
+
 async def _send(ctx, method: str, url: str, **kwargs):
     """One retry on transient 5xx / network error — absorbs the platform's
     'first call fails, retry works' infra transients. Real 4xx are returned
     as-is for the caller to interpret (e.g. 404 → self-heal re-ingest)."""
+    headers = await _auth_headers(ctx)
+    extra_headers = kwargs.pop("headers", None)
+    if extra_headers:
+        headers = {**headers, **extra_headers}
+    kwargs["headers"] = headers
     call = getattr(ctx.http, method)
     last: Exception | None = None
     for _ in range(2):
