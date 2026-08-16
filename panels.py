@@ -86,9 +86,12 @@ def _entry_items(entries: list) -> list:
         ext_label = _type_label(name, f.get("mime_type", ""))
         size_label = _human_size(f.get("size_bytes"))
         status = f.get("status") or "pending"
+        subtitle_parts = [p for p in (ext_label, size_label) if p]
+        if status == "failed" and f.get("error"):
+            subtitle_parts.append(f"error: {f['error']}")
         items.append(ui.ListItem(
             id=f["file_id"], title=name,
-            subtitle=" · ".join(p for p in (ext_label, size_label) if p),
+            subtitle=" · ".join(subtitle_parts),
             icon="FileText",
             badge=ui.Badge(status, color=_STATUS_COLOR.get(status, "blue")),
             actions=[{"label": "Remove", "icon": "Trash2",

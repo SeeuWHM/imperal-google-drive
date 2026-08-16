@@ -81,6 +81,7 @@ class FileOverview(sdl.Entity, sdl.Excerptable):
     mime_type: str | None = None
     size_bytes: int | None = None
     status: str | None = None
+    error: str | None = None  # last failure reason, only set when status == "failed"
 
 
 class FileTextList(sdl.EntityList[FileText]):
@@ -193,6 +194,7 @@ def build_doc_file(f: dict) -> DocFile:
         updated_at=f.get("modified_at"),
         status=f.get("status"),
         is_folder=bool(f.get("is_folder")),
+        error=f.get("error") if f.get("status") == "failed" else None,
     )
 
 
@@ -255,6 +257,7 @@ def build_file_overview(data: dict) -> FileOverview:
         excerpt=data.get("preview"),
         file_id=data.get("file_id"), mime_type=data.get("mime_type"),
         size_bytes=data.get("size_bytes"), status=data.get("status"),
+        error=data.get("error"),
     )
 
 

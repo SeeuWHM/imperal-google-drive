@@ -72,7 +72,8 @@ async def file_overview(ctx, file_ids: list[str]) -> list[dict]:
             except Exception as e:  # noqa: BLE001
                 return {"file_id": fid, "status": "error", "message": str(e)}
             out = {"file_id": fid, "name": rec.get("name"), "mime_type": rec.get("mime_type"),
-                   "size_bytes": rec.get("size_bytes"), "status": rec.get("status"), "preview": None}
+                   "size_bytes": rec.get("size_bytes"), "status": rec.get("status"), "preview": None,
+                   "error": rec.get("error") if rec.get("status") == lifecycle.FAILED else None}
             if rec.get("status") == lifecycle.READY and rec.get("document_id"):
                 try:
                     meta = await extractor.overview(ctx, rec["document_id"])
