@@ -104,7 +104,7 @@ async def test_index_record_success(make_ctx, monkeypatch):
 
     async def fake_ingest(ctx, *, fetch_url, auth, content_key, filename):
         assert content_key == "abc"  # binary → md5
-        assert fetch_url.endswith("/files/F1?alt=media")
+        assert "/files/F1?alt=media" in fetch_url and "supportsAllDrives=true" in fetch_url
         assert auth == "tok"
         return {"status": "processed", "document_id": 7}
 

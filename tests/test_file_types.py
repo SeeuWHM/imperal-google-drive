@@ -65,19 +65,22 @@ def test_export_mime_none_for_binary():
 
 def test_fetch_url_binary_is_alt_media():
     url = ft.build_fetch_url("FILE1", PDF)
-    assert url.endswith("/files/FILE1?alt=media")
+    assert url.startswith("https://www.googleapis.com/drive/v3/files/FILE1?alt=media")
+    assert "supportsAllDrives=true" in url  # Shared-Drive files 404 without this
 
 
 def test_fetch_url_native_is_export_with_encoded_mime():
     url = ft.build_fetch_url("FILE2", GOOGLE_DOC_MIME)
     assert "/files/FILE2/export?mimeType=" in url
     assert "text%2Fmarkdown" in url  # mime is URL-encoded
+    assert "supportsAllDrives=true" in url
 
 
 def test_fetch_url_sheet_exports_xlsx():
     url = ft.build_fetch_url("S1", GOOGLE_SHEET_MIME)
     assert "/files/S1/export?mimeType=" in url
     assert "spreadsheetml.sheet" in url
+    assert "supportsAllDrives=true" in url
 
 
 # ── content key (change detection / cache) ────────────────────────────────────

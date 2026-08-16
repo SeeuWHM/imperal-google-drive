@@ -49,11 +49,20 @@ def build_fetch_url(file_id: str, mime_type: str) -> str:
     """The URL the engine fetches this file's content from:
       native → files/{id}/export?mimeType=<canonical>
       binary → files/{id}?alt=media
-    drive.file authorises both for a picked file."""
+    drive.file authorises both for a picked file.
+
+    supportsAllDrives=true is REQUIRED for files that live in a Shared Drive
+    (common on Google Workspace accounts) — without it, Drive API v3 answers
+    a flat 404 (not 403) for an otherwise-valid, properly-authorised file,
+    which is indistinguishable from 'file does not exist'. drive_list_folder
+    already carried this param; the actual download/export calls (used by
+    every real ingest) did not, which is why ingestion could fail 100% of the
+    time on one Workspace account while working fine on a personal-Drive
+    account picking the exact same kind of file."""
     export = _EXPORT_MIME.get(mime_type)
     if export:
-        return f"{DRIVE_API}/files/{file_id}/export?mimeType={quote(export, safe='')}"
-    return f"{DRIVE_API}/files/{file_id}?alt=media"
+        return f"{DRIVE_API}/files/{file_id}/export?mimeType={quote(export, safe='')}&supportsAllDrives=true"
+    return f"{DRIVE_API}/files/{file_id}?alt=media&supportsAllDrives=true"
 
 
 def content_key(mime_type: str, meta: dict) -> str:

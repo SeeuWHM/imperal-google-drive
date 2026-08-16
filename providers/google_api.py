@@ -15,10 +15,16 @@ def _auth_headers(acc: dict) -> dict:
 
 
 async def drive_get_metadata(ctx, acc: dict, file_id: str):
+    """supportsAllDrives=true so a Shared-Drive file's metadata doesn't 404
+    (see build_fetch_url's docstring — same Drive API quirk applies here,
+    and this call runs BEFORE the download/export step in index_record)."""
     acc = await _refresh_token_if_needed(ctx, acc)
     return await ctx.http.get(
         f"{DRIVE_API}/files/{file_id}",
-        params={"fields": "id,name,mimeType,modifiedTime,size,md5Checksum,headRevisionId"},
+        params={
+            "fields": "id,name,mimeType,modifiedTime,size,md5Checksum,headRevisionId",
+            "supportsAllDrives": "true",
+        },
         headers=_auth_headers(acc),
     )
 
