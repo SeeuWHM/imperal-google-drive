@@ -75,6 +75,40 @@ async def test_ingest_missing_data_key_raises(make_ctx, resp):
         await extractor.ingest(ctx, fetch_url="u", auth="t", content_key="c", filename="f")
 
 
+async def test_ingest_polls_past_pending_to_terminal_status(make_ctx, resp, monkeypatch):
+    """The from-url endpoint is two-phase async: the first response is almost
+    always status=pending (drain loop hasn't run yet). ingest() must poll
+    overview() until a terminal status instead of treating that first
+    `pending` as final (which used to mark perfectly fine files FAILED)."""
+    monkeypatch.setattr(extractor.asyncio, "sleep", lambda *_a, **_kw: _noop())
+    ctx = make_ctx([
+        resp(200, {"data": {"documents": [{"document_id": 7, "status": "pending"}]}}),
+        resp(200, {"data": {"status": "pending", "document_id": 7}}),
+        resp(200, {"data": {"status": "processed", "document_id": 7}}),
+    ])
+    out = await extractor.ingest(ctx, fetch_url="u", auth="t", content_key="c", filename="f")
+    assert out["status"] == "processed"
+    assert len(ctx.http.calls) == 3  # 1 post + 2 poll gets
+
+
+async def test_ingest_poll_timeout_reports_still_processing(make_ctx, resp, monkeypatch):
+    monkeypatch.setattr(extractor, "_INGEST_POLL_MAX_S", 4.0)
+    monkeypatch.setattr(extractor.asyncio, "sleep", lambda *_a, **_kw: _noop())
+    ctx = make_ctx([
+        resp(200, {"data": {"documents": [{"document_id": 7, "status": "pending"}]}}),
+        resp(200, {"data": {"status": "pending", "document_id": 7}}),
+        resp(200, {"data": {"status": "pending", "document_id": 7}}),
+        resp(200, {"data": {"status": "pending", "document_id": 7}}),
+    ])
+    out = await extractor.ingest(ctx, fetch_url="u", auth="t", content_key="c", filename="f")
+    assert out["status"] == "pending"
+    assert "still processing" in out["error"]
+
+
+async def _noop():
+    return None
+
+
 # ── read_text ─────────────────────────────────────────────────────────────────
 
 
@@ -197,6 +231,40 @@ async def test_4xx_not_retried(make_ctx, resp):
     with pytest.raises(RuntimeError):
         await extractor.search(ctx, "q")
     assert len(ctx.http.calls) == 1  # 4xx returned immediately, raise_for_status raises
+
+
+async def test_auth_gw_timeout_then_success_retries_once(make_ctx, resp, monkeypatch):
+    """Regression for a live failure: 'auth-gw unreachable on
+    get(name=\'doc_extractor_token\'): ReadTimeout'. ctx.secrets.get() is
+    itself a network call and can transiently time out just like the engine
+    HTTP call — it must get the same retry-once treatment, not kill the
+    request outright with zero retries."""
+    doc = {"document_id": 9, "status": "processed"}
+    ctx = make_ctx([resp(200, {"data": {"documents": [doc]}})])
+    calls = {"n": 0}
+
+    async def flaky_get(name):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise TimeoutError("ReadTimeout")
+        return "shh-secret"
+
+    monkeypatch.setattr(ctx.secrets, "get", flaky_get)
+    out = await extractor.ingest(ctx, fetch_url="u", auth="t", content_key="c", filename="f")
+    assert out == doc
+    assert calls["n"] == 2  # one failed secrets fetch, one that succeeded
+
+
+async def test_auth_gw_timeout_twice_raises(make_ctx, monkeypatch):
+    ctx = make_ctx([])
+
+    async def always_times_out(name):
+        raise TimeoutError("ReadTimeout")
+
+    monkeypatch.setattr(ctx.secrets, "get", always_times_out)
+    with pytest.raises(Exception):
+        await extractor.search(ctx, "q")
+    assert len(ctx.http.calls) == 0  # never even reached the HTTP call
 
 
 # ── engine bearer auth (added 2026-08-16 — the engine has required this on

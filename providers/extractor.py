@@ -12,6 +12,7 @@ round-trip, no re-extract, no re-embed.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from .helpers import DOC_EXTRACTOR_URL
@@ -68,17 +69,31 @@ async def _auth_headers(ctx) -> dict:
 async def _send(ctx, method: str, url: str, **kwargs):
     """One retry on transient 5xx / network error — absorbs the platform's
     'first call fails, retry works' infra transients. Real 4xx are returned
-    as-is for the caller to interpret (e.g. 404 → self-heal re-ingest)."""
-    headers = await _auth_headers(ctx)
+    as-is for the caller to interpret (e.g. 404 → self-heal re-ingest).
+
+    IMPORTANT (found 2026-08-16): _auth_headers() used to be fetched ONCE,
+    OUTSIDE this retry loop. It calls ctx.secrets.get(), which itself is a
+    network round-trip to the platform's own auth-gateway — and that call can
+    transiently ReadTimeout just like any other network call (confirmed live:
+    "auth-gw unreachable on get(name='doc_extractor_token'): ReadTimeout").
+    When it did, the whole engine request died immediately with ZERO retries,
+    even though every other transient (5xx, network error on the actual HTTP
+    call) already got one. Auth-header fetch now happens INSIDE the loop so a
+    one-off auth-gw hiccup gets the same retry-once treatment as everything
+    else instead of hard-failing the file."""
     extra_headers = kwargs.pop("headers", None)
-    if extra_headers:
-        headers = {**headers, **extra_headers}
-    kwargs["headers"] = headers
     call = getattr(ctx.http, method)
     last: Exception | None = None
     for _ in range(2):
         try:
-            resp = await call(url, **kwargs)
+            headers = await _auth_headers(ctx)
+        except Exception as e:  # noqa: BLE001 - auth-gw hiccup → retry once too
+            last = e
+            continue
+        if extra_headers:
+            headers = {**headers, **extra_headers}
+        try:
+            resp = await call(url, headers=headers, **kwargs)
         except Exception as e:  # noqa: BLE001 - network/timeout → retry once
             last = e
             continue
@@ -87,6 +102,20 @@ async def _send(ctx, method: str, url: str, **kwargs):
             continue
         return resp
     raise last if last else RuntimeError("engine request failed")
+
+
+# Statuses the engine's async drain loop can still move on from — anything
+# else (processed | failed | unsupported | cached) is terminal. See
+# doc-extractor-service app/schemas.py: "status: pending | processing |
+# processed | failed | unsupported | cached".
+_IN_PROGRESS_STATES = ("pending", "processing")
+
+# Ingest is now async server-side (2026-08-16: from-url stages the file and
+# returns immediately; a separate drain loop does the actual extraction later)
+# — polling budget for THIS call to wait for a terminal status before giving
+# up and reporting "still pending" back to the caller.
+_INGEST_POLL_INTERVAL_S = 2.0
+_INGEST_POLL_MAX_S = 90.0
 
 
 async def ingest(ctx, *, fetch_url: str, auth: str, content_key: str, filename: str) -> dict:
@@ -104,6 +133,17 @@ async def ingest(ctx, *, fetch_url: str, auth: str, content_key: str, filename: 
     FromUrlRequest / app/documents.py _handle_one_from_url for the server side
     (added 2026-08-16; URL is allowlisted to Google's own API host there).
 
+    IMPORTANT (found 2026-08-16): /v1/documents/from-url is a two-phase async
+    endpoint on the server -- it stages the download and returns a `pending`
+    row immediately; a SEPARATE drain loop does the real extraction moments
+    later. The first response is therefore ALMOST ALWAYS status=pending, with
+    no error/error_code yet (they're only set once extraction actually runs).
+    Reading that first response as final made index_record() mark the file
+    FAILED with "could not index this file (None)" nearly every time, even
+    for perfectly fine files -- a pure race, not a real failure. So: if the
+    first response isn't already terminal, POLL the document by id via
+    overview() until it reaches a terminal status or the poll budget runs out.
+
     `content_key` is accepted for API-compat with callers but the server keys
     on sha256 of the actual downloaded bytes — dedup still works, just content-
     addressed instead of Drive-revision-addressed (an unchanged file still
@@ -120,7 +160,24 @@ async def ingest(ctx, *, fetch_url: str, auth: str, content_key: str, filename: 
     docs = ((resp.json() or {}).get("data") or {}).get("documents") or []
     if not docs:
         raise RuntimeError("engine returned no document")
-    return docs[0]
+    doc = docs[0]
+    document_id = doc.get("document_id")
+    if doc.get("status") not in _IN_PROGRESS_STATES or not document_id:
+        return doc
+    waited = 0.0
+    while waited < _INGEST_POLL_MAX_S:
+        await asyncio.sleep(_INGEST_POLL_INTERVAL_S)
+        waited += _INGEST_POLL_INTERVAL_S
+        doc = await overview(ctx, document_id)
+        if doc.get("status") not in _IN_PROGRESS_STATES:
+            return doc
+    # Budget exhausted but the engine is still working on it (a big/slow file)
+    # — this is NOT a failure, so say so plainly instead of the previous
+    # opaque "could not index this file (None)".
+    doc["error"] = doc.get("error") or (
+        f"still processing after {int(_INGEST_POLL_MAX_S)}s — try again shortly"
+    )
+    return doc
 
 
 async def read_text(ctx, document_id: int, offset: int = 0, limit: int = 40_000) -> dict:
