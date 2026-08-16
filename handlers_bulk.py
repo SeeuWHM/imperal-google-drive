@@ -49,10 +49,11 @@ async def fn_file_bulk_action(ctx, params: FileBulkActionParams) -> ActionResult
             )
         else:  # retry_index
             res = await lifecycle.reindex_files(ctx, ids)
-            indexed, failed = res["indexed"], res["failed"]
+            indexed, failed, errors = res["indexed"], res["failed"], res.get("errors") or []
             if indexed == 0 and failed > 0:
+                reasons = "; ".join(f"{e['name']}: {e['error']}" for e in errors[:3])
                 return ActionResult.error(
-                    f"Re-index failed for all {failed} file(s) — see each file's status/error in the panel.",
+                    f"Re-index failed for all {failed} file(s) — {reasons}",
                     retryable=True,
                 )
             return ActionResult.success(

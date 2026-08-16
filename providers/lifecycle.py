@@ -270,7 +270,10 @@ async def reindex_files(ctx, file_ids: list[str]) -> dict:
     PARALLEL (bounded by _INDEX_CONCURRENCY). Used by the panel's bulk 'Retry
     indexing' action — lets a user recover several 'failed' files in one tap
     instead of one at a time. Unknown ids and folders (not readable) are
-    silently skipped. Returns {"indexed": n, "failed": n}."""
+    silently skipped. Returns {"indexed": n, "failed": n, "errors": [{name, error}]}
+    — errors carries the REAL per-file failure reason (previously swallowed
+    entirely by a bare `except Exception: return False`, leaving both the
+    caller and the panel with zero clue why a re-index failed)."""
     acc = await _active_account(ctx)
     acc = await _refresh_token_if_needed(ctx, acc)
     by_id = {f["file_id"]: f for f in await _all_picked_files(ctx, _account_email(acc))}
@@ -280,17 +283,22 @@ async def reindex_files(ctx, file_ids: list[str]) -> dict:
     ]
     sem = asyncio.Semaphore(_INDEX_CONCURRENCY)
 
-    async def _one(rec) -> bool:
+    async def _one(rec) -> tuple[bool, str | None]:
         async with sem:
             try:
                 await index_record(ctx, acc, rec)
-                return True
-            except Exception:  # noqa: BLE001
-                return False
+                return True, None
+            except Exception as e:  # noqa: BLE001
+                log.warning("reindex failed for %s: %s", rec.get("name") or rec.get("file_id"), e)
+                return False, str(e)
 
     results = await asyncio.gather(*(_one(r) for r in targets))
-    indexed = sum(1 for ok in results if ok)
-    return {"indexed": indexed, "failed": len(results) - indexed}
+    indexed = sum(1 for ok, _ in results if ok)
+    errors = [
+        {"name": rec.get("name") or rec.get("file_id"), "error": err}
+        for rec, (ok, err) in zip(targets, results) if not ok
+    ]
+    return {"indexed": indexed, "failed": len(results) - indexed, "errors": errors}
 
 
 async def list_entries(ctx) -> list[dict]:

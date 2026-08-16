@@ -444,7 +444,7 @@ async def test_reindex_files_indexes_selected_and_skips_folders(make_ctx, monkey
     # Selection includes a folder id and an id that doesn't exist at all —
     # both must be silently skipped, never crash the batch.
     res = await lifecycle.reindex_files(ctx, ["F1", "F2", "D1", "GHOST"])
-    assert res == {"indexed": 2, "failed": 0}
+    assert res == {"indexed": 2, "failed": 0, "errors": []}
     assert set(seen) == {"F1", "F2"}
 
 
@@ -465,7 +465,9 @@ async def test_reindex_files_counts_partial_failure(make_ctx, monkeypatch):
 
     monkeypatch.setattr(lifecycle, "_active_account", fake_active)
     monkeypatch.setattr(lifecycle, "index_record", fake_index)
-    assert await lifecycle.reindex_files(ctx, ["F1", "F2"]) == {"indexed": 1, "failed": 1}
+    res = await lifecycle.reindex_files(ctx, ["F1", "F2"])
+    assert res["indexed"] == 1 and res["failed"] == 1
+    assert res["errors"] == [{"name": "F2", "error": "boom"}]
 
 
 async def test_reindex_files_empty_selection(make_ctx, monkeypatch):
@@ -475,4 +477,4 @@ async def test_reindex_files_empty_selection(make_ctx, monkeypatch):
         return make_acc()
 
     monkeypatch.setattr(lifecycle, "_active_account", fake_active)
-    assert await lifecycle.reindex_files(ctx, []) == {"indexed": 0, "failed": 0}
+    assert await lifecycle.reindex_files(ctx, []) == {"indexed": 0, "failed": 0, "errors": []}
