@@ -46,9 +46,11 @@ _OP_SUMMARY = {
 @chat.function(
     "edit_document", action_type="write", event="file.edited", data_model=EditResult,
     description=(
-        "Edit a Google Doc: op=replace (exact find-and-replace — fails if find_text has no match), "
-        "op=append (add text to the end), or op=overwrite (replace the whole document). Changes the "
-        "live document immediately."
+        "Edit a Google Doc OR Google Slides presentation (auto-detected from the file's type): "
+        "op=replace (exact find-and-replace across the whole doc/every slide — fails if find_text has "
+        "no match), op=append (Docs only — add text to the end), or op=overwrite (Docs only — replace "
+        "the whole document). Slides supports replace only (no single body to append to/overwrite). "
+        "Changes the live document immediately."
     ),
 )
 async def fn_edit_document(ctx, params: EditDocumentParams) -> ActionResult:

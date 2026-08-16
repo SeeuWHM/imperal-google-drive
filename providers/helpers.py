@@ -9,6 +9,7 @@ DRIVE_API = "https://www.googleapis.com/drive/v3"
 DRIVE_UPLOAD_API = "https://www.googleapis.com/upload/drive/v3"
 DOCS_API = "https://docs.googleapis.com/v1"
 SHEETS_API = "https://sheets.googleapis.com/v4"
+SLIDES_API = "https://slides.googleapis.com/v1"
 
 GOOGLE_DOC_MIME = "application/vnd.google-apps.document"
 GOOGLE_SHEET_MIME = "application/vnd.google-apps.spreadsheet"

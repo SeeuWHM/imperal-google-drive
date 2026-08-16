@@ -47,13 +47,12 @@ async def test_ingest_sends_exact_shape_and_returns_doc(make_ctx, resp):
     assert out == doc
     method, url, kwargs = ctx.http.calls[0]
     assert method == "post"
-    assert url == extractor._DOCUMENTS_URL
-    data = kwargs["data"]
+    assert url == extractor._FROM_URL_URL
+    data = kwargs["json"]
     assert data["source"] == "gdrive"
     assert data["imperal_id"] == "user-123"
     assert data["url"] == "https://drive/x?alt=media"
     assert data["auth"] == "tok"
-    assert data["content_key"] == "md5abc"
     assert data["filename"] == "f.pdf"
     assert kwargs["timeout"] == 120
 

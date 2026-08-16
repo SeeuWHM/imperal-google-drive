@@ -21,8 +21,9 @@ from .google_api import (
     sheets_get_metadata,
     sheets_get_values,
     sheets_update_values,
+    slides_batch_update,
 )
-from .helpers import _active_account
+from .helpers import GOOGLE_DOC_MIME, GOOGLE_SLIDE_MIME, _active_account
 from .spreadsheet_math import compute_aggregate
 
 log = logging.getLogger("doc_reader")
@@ -40,16 +41,29 @@ def _is_writable_text(mime: str) -> bool:
 # re-index (handlers_index.kick_reindex) so read_file/search stay fresh.
 
 
-# ── Google Docs ───────────────────────────────────────────────────────────────
+# ── Google Docs / Slides ───────────────────────────────────────────────────────
 
 
 async def edit_document(ctx, file_id: str, op: str, *, find_text: str | None = None,
                         replace_text: str | None = None, match_case: bool = False,
                         text: str | None = None, content: str | None = None) -> dict:
-    """op = replace | append | overwrite. Changes the live Google Doc, then
+    """op = replace | append | overwrite. Changes the live Google Doc or Google
+    Slides presentation (routed by the picked file's mime type), then
     re-ingests. `replace` raises if find_text has no match (nothing changed)."""
     acc = await _active_account(ctx)
     rec = await lifecycle.resolve_record(ctx, acc, file_id)  # auth + record for re-ingest
+    mime = rec.get("mime_type") or ""
+
+    if mime == GOOGLE_SLIDE_MIME:
+        return await _edit_slides(ctx, acc, file_id, op, find_text=find_text,
+                                  replace_text=replace_text, match_case=match_case)
+
+    if mime and mime != GOOGLE_DOC_MIME:
+        raise RuntimeError(
+            f"Cannot edit {rec.get('name', file_id)!r} as a Google Doc — its type ({mime}) "
+            "isn't a Google Doc. Use edit_spreadsheet for Sheets, write_text_file for plain-text "
+            "files, or edit_document (replace only) for Google Slides."
+        )
 
     if op == "replace":
         requests = [{"replaceAllText": {
@@ -91,6 +105,34 @@ async def edit_document(ctx, file_id: str, op: str, *, find_text: str | None = N
         raise ValueError(f"unknown op {op!r} (use replace | append | overwrite)")
 
     return result
+
+
+async def _edit_slides(ctx, acc: dict, file_id: str, op: str, *, find_text: str | None,
+                       replace_text: str | None, match_case: bool) -> dict:
+    """Google Slides only supports `replace` (find-and-replace across every
+    slide) — the Slides API has no single linear body to append to or
+    overwrite the way Docs does (a presentation is a tree of slides/shapes),
+    so append/overwrite aren't meaningfully implementable the same way."""
+    if op != "replace":
+        raise RuntimeError(
+            f"Google Slides only supports op='replace' (find-and-replace across every slide) — "
+            f"'{op}' has no equivalent for a presentation (no single body to append to or "
+            "overwrite). Edit slide text with find_text/replace_text instead."
+        )
+    requests = [{"replaceAllText": {
+        "containsText": {"text": find_text, "matchCase": match_case},
+        "replaceText": replace_text or "",
+    }}]
+    resp = await slides_batch_update(ctx, acc, file_id, requests)
+    resp.raise_for_status()
+    replies = resp.json().get("replies", [])
+    occ = replies[0].get("replaceAllText", {}).get("occurrencesChanged", 0) if replies else 0
+    if occ == 0:
+        raise RuntimeError(
+            f"No occurrences of {find_text!r} found on any slide — nothing was changed. "
+            "Check the exact wording with read_file first."
+        )
+    return {"op": "replace", "occurrences": occ}
 
 
 # ── Google Sheets ─────────────────────────────────────────────────────────────

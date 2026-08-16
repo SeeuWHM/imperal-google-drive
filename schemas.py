@@ -69,7 +69,7 @@ class SearchFilesParams(BaseModel):
 
 
 class EditDocumentParams(BaseModel):
-    file_id: str = Field(description="Google Doc file ID.")
+    file_id: str = Field(description="Google Doc or Google Slides file ID.")
     op: Literal["replace", "append", "overwrite"] = Field(description="replace = find-and-replace exact text; append = add to the end; overwrite = replace the whole document.")
     find_text: str | None = Field(default=None, description="For op=replace: exact text to find.")
     replace_text: str | None = Field(default=None, description="For op=replace: text to replace it with.")

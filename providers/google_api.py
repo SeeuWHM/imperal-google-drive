@@ -3,7 +3,7 @@ operation, no orchestration baked in here (the handler layer decides what to
 call and when)."""
 from __future__ import annotations
 
-from .helpers import DOCS_API, DRIVE_API, DRIVE_UPLOAD_API, SHEETS_API
+from .helpers import DOCS_API, DRIVE_API, DRIVE_UPLOAD_API, SHEETS_API, SLIDES_API
 from .token_refresh import _refresh_token_if_needed
 
 
@@ -135,6 +135,18 @@ def document_end_index(doc_json: dict) -> int:
     if not content:
         return 1
     return content[-1].get("endIndex", 1)
+
+
+# ── Slides ─────────────────────────────────────────────────────────────────
+
+
+async def slides_batch_update(ctx, acc: dict, presentation_id: str, requests: list[dict]):
+    acc = await _refresh_token_if_needed(ctx, acc)
+    return await ctx.http.post(
+        f"{SLIDES_API}/presentations/{presentation_id}:batchUpdate",
+        headers=_auth_headers(acc),
+        json={"requests": requests},
+    )
 
 
 # ── Sheets ───────────────────────────────────────────────────────────────────

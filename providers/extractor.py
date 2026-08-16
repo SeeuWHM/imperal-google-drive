@@ -21,6 +21,7 @@ log = logging.getLogger("doc_reader")
 SOURCE = "gdrive"
 
 _DOCUMENTS_URL = f"{DOC_EXTRACTOR_URL}/v1/documents"
+_FROM_URL_URL = f"{DOC_EXTRACTOR_URL}/v1/documents/from-url"
 _SEARCH_URL = f"{DOC_EXTRACTOR_URL}/v1/search"
 
 # Engine statuses that mean "content is available to read/search".
@@ -89,17 +90,30 @@ async def _send(ctx, method: str, url: str, **kwargs):
 
 
 async def ingest(ctx, *, fetch_url: str, auth: str, content_key: str, filename: str) -> dict:
-    """Hand the engine a URL it fetches ITSELF (media URL for binaries, export
-    URL for Google-native) + a transient bearer token + a change key. The
-    engine downloads, extracts, stores the text and embeds it. Idempotent by
-    (source, imperal_id, content_key): an unchanged file is a fast cache hit
-    with no re-download/re-embed. Returns the DocumentOut dict."""
-    resp = await _send(ctx, "post", _DOCUMENTS_URL, data={
+    """Hand the engine a Drive URL (media URL for binaries, export URL for
+    Google-native) + a transient bearer token (the caller's own Drive OAuth
+    access token) so the ENGINE downloads it itself, over /v1/documents/from-url.
+
+    Why not send the bytes ourselves: ctx.http (imperal_sdk's HTTP client)
+    decodes any non-JSON response body via `.text` when the content-type isn't
+    JSON — that's LOSSY for arbitrary binary bytes (confirmed: round-tripping a
+    PDF/XLSX/image through it corrupts the payload). There is no raw/bytes mode
+    on ctx.http, so this extension can never safely hold Drive file bytes
+    in-process; the fix is to have the server fetch the URL directly (real
+    httpx there, byte-exact). See doc-extractor-service app/schemas.py
+    FromUrlRequest / app/documents.py _handle_one_from_url for the server side
+    (added 2026-08-16; URL is allowlisted to Google's own API host there).
+
+    `content_key` is accepted for API-compat with callers but the server keys
+    on sha256 of the actual downloaded bytes — dedup still works, just content-
+    addressed instead of Drive-revision-addressed (an unchanged file still
+    ends up a cache hit once its bytes match what's already stored).
+    Returns the DocumentOut dict."""
+    resp = await _send(ctx, "post", _FROM_URL_URL, json={
         "source": SOURCE,
         "imperal_id": imperal_id(ctx),
         "url": fetch_url,
         "auth": auth,
-        "content_key": content_key,
         "filename": filename,
     }, timeout=120)
     resp.raise_for_status()

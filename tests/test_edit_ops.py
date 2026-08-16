@@ -23,7 +23,7 @@ def patched(monkeypatch):
         return {"email": "a@b.com", "access_token": "tok"}
 
     async def fake_resolve(ctx, acc, file_id):
-        return {"doc_id": "d1", "file_id": file_id, "name": "a.txt", "mime_type": "text/plain"}
+        return {"doc_id": "d1", "file_id": file_id, "name": "a.txt", "mime_type": "application/vnd.google-apps.document"}
 
     monkeypatch.setattr(edit_ops, "_active_account", fake_active_account)
     monkeypatch.setattr(edit_ops.lifecycle, "resolve_record", fake_resolve)
@@ -88,6 +88,66 @@ async def test_edit_document_overwrite_deletes_then_inserts(patched, make_ctx, m
 async def test_edit_document_unknown_op_raises(patched, make_ctx):
     with pytest.raises(ValueError):
         await edit_ops.edit_document(make_ctx(), "F1", "frobnicate")
+
+
+async def test_edit_document_wrong_type_raises(patched, make_ctx, monkeypatch):
+    async def fake_resolve_pdf(ctx, acc, file_id):
+        return {"doc_id": "d1", "file_id": file_id, "name": "x.pdf", "mime_type": "application/pdf"}
+
+    monkeypatch.setattr(edit_ops.lifecycle, "resolve_record", fake_resolve_pdf)
+    with pytest.raises(RuntimeError):
+        await edit_ops.edit_document(make_ctx(), "F1", "replace", find_text="a", replace_text="b")
+
+
+# ── edit_document · Google Slides ─────────────────────────────────────────────
+
+
+@pytest.fixture
+def patched_slides(monkeypatch):
+    """Same as `patched` but the picked record is a Google Slides file."""
+    state = {"requests": None}
+
+    async def fake_active_account(ctx):
+        return {"email": "a@b.com", "access_token": "tok"}
+
+    async def fake_resolve(ctx, acc, file_id):
+        return {"doc_id": "p1", "file_id": file_id, "name": "deck.gslides",
+                "mime_type": "application/vnd.google-apps.presentation"}
+
+    monkeypatch.setattr(edit_ops, "_active_account", fake_active_account)
+    monkeypatch.setattr(edit_ops.lifecycle, "resolve_record", fake_resolve)
+    return state
+
+
+async def test_edit_slides_replace_counts(patched_slides, make_ctx, monkeypatch):
+    async def fake_batch(ctx, acc, file_id, requests):
+        patched_slides["requests"] = requests
+        return _ok({"replies": [{"replaceAllText": {"occurrencesChanged": 2}}]})
+
+    monkeypatch.setattr(edit_ops, "slides_batch_update", fake_batch)
+    out = await edit_ops.edit_document(make_ctx(), "P1", "replace", find_text="foo", replace_text="bar")
+    assert out == {"op": "replace", "occurrences": 2}
+    r = patched_slides["requests"][0]["replaceAllText"]
+    assert r["containsText"]["text"] == "foo" and r["replaceText"] == "bar"
+
+
+async def test_edit_slides_replace_zero_raises(patched_slides, make_ctx, monkeypatch):
+    async def fake_batch(ctx, acc, file_id, requests):
+        return _ok({"replies": [{"replaceAllText": {"occurrencesChanged": 0}}]})
+
+    monkeypatch.setattr(edit_ops, "slides_batch_update", fake_batch)
+    with pytest.raises(RuntimeError):
+        await edit_ops.edit_document(make_ctx(), "P1", "replace", find_text="x", replace_text="y")
+
+
+async def test_edit_slides_append_unsupported_raises(patched_slides, make_ctx):
+    with pytest.raises(RuntimeError):
+        await edit_ops.edit_document(make_ctx(), "P1", "append", text="nope")
+
+
+async def test_edit_slides_overwrite_unsupported_raises(patched_slides, make_ctx):
+    with pytest.raises(RuntimeError):
+        await edit_ops.edit_document(make_ctx(), "P1", "overwrite", content="nope")
 
 
 # ── edit_spreadsheet ──────────────────────────────────────────────────────────
@@ -183,6 +243,10 @@ async def test_write_text_file_ok(patched, make_ctx, monkeypatch):
         captured["mime"] = mime_type
         return _ok({})
 
+    async def fake_resolve_text(ctx, acc, file_id):
+        return {"doc_id": "d1", "file_id": file_id, "name": "a.txt", "mime_type": "text/plain"}
+
+    monkeypatch.setattr(edit_ops.lifecycle, "resolve_record", fake_resolve_text)
     monkeypatch.setattr(edit_ops, "drive_upload_media", fake_upload)
     out = await edit_ops.write_text_file(make_ctx(), "T1", "hello")
     assert out == {"saved": True}

@@ -26,10 +26,20 @@ log = logging.getLogger("doc_reader")
 
 async def _index_pending_job(ctx) -> ActionResult:
     res = await lifecycle.index_pending(ctx)
-    tail = f" ({res['failed']} failed)" if res["failed"] else ""
+    indexed, failed = res["indexed"], res["failed"]
+    # A run that indexed NOTHING and failed at least one file is a real
+    # failure, not a success — must surface as an error (red toast), not a
+    # green one. Partial success (some indexed, some failed) still succeeds,
+    # with the failure count folded into the summary so it's visible.
+    if indexed == 0 and failed > 0:
+        return ActionResult.error(
+            f"Indexing failed for all {failed} file(s) — see each file's status/error in the panel.",
+            retryable=True,
+        )
+    tail = f" ({failed} failed)" if failed else ""
     return ActionResult.success(
-        data=build_index_result(res["indexed"], res["failed"]),
-        summary=f"✅ Indexed {res['indexed']} file(s){tail}.",
+        data=build_index_result(indexed, failed),
+        summary=f"✅ Indexed {indexed} file(s){tail}.",
         refresh_panels=["doc_files"],
     )
 

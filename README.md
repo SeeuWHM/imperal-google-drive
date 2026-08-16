@@ -7,7 +7,7 @@
 
 **Google Drive connector for [Imperal Cloud](https://panel.imperal.io).**
 
-Read and edit Google Docs, Google Sheets, and plain-text files — and read Google Slides — straight from the user's own Google Drive. Nothing is stored on Imperal beyond a `file_id` pointer and a search cache: content is fetched live and writes go straight back to the source document.
+Read and edit Google Docs, Google Sheets, Google Slides, and plain-text files straight from the user's own Google Drive. Nothing is stored on Imperal beyond a `file_id` pointer and a search cache: content is fetched live and writes go straight back to the source document.
 
 ---
 
@@ -60,7 +60,7 @@ Or use the panel — split across two focused surfaces:
 ### Edit (native Google API, typed per format)
 | Action | Description |
 |--------|-------------|
-| **edit_document** | Google Docs: replace (find/replace), append, or overwrite |
+| **edit_document** | Google Docs (replace/append/overwrite) or Google Slides (replace only — auto-detected by file type) |
 | **edit_spreadsheet** | Write a 2D value range into a Sheet (A1 notation) |
 | **get_spreadsheet_info** | Tab names + dimensions of a Sheet |
 | **read_spreadsheet_range** | Raw 2D values for a range or whole sheet |
@@ -105,7 +105,7 @@ imperal-google-drive/
 │   ├── content_ops.py      # read_files/file_overview/search_files logic
 │   ├── spreadsheet_math.py # Exact sum/count/average/min/max
 │   └── text_windows.py     # Offset/limit pagination for long files
-└── tests/                 # 97 pytest — SDK-free FakeCtx/FakeHttp/FakeStore doubles for providers/*
+└── tests/                 # 102 pytest — SDK-free FakeCtx/FakeHttp/FakeStore doubles for providers/*
 ```
 
 **Two planes, split by intent, not file type:**
@@ -144,7 +144,7 @@ edit_document / edit_spreadsheet / write_text_file → native Google API, then b
 | `read_files` | read | Read text of one or many files (parallel) |
 | `file_overview` | read | Cheap overview of one or many files |
 | `search_files` | read | Semantic search (all files) or exact grep (given ids) |
-| `edit_document` | write | Google Docs replace/append/overwrite |
+| `edit_document` | write | Google Docs replace/append/overwrite, or Google Slides replace |
 | `edit_spreadsheet` | write | Write values into a Sheet range |
 | `get_spreadsheet_info` | read | Sheet tab names + dimensions |
 | `read_spreadsheet_range` | read | Raw 2D values for a range |
@@ -158,8 +158,8 @@ edit_document / edit_spreadsheet / write_text_file → native Google API, then b
 
 ## Known limitations
 
-- **Folder contents are not actually reachable yet.** A folder can be picked and appears in `list_files`, and `open_folder` is implemented — but Google's `drive.file` scope does not return a folder's children via `files.list` (confirmed empirically: 0 results across every listing strategy tried, even though the folder object itself is granted). Every option that would fix this cleanly (broader `drive.readonly`/`drive` scope, a service account, Workspace-only internal apps, Domain-Wide Delegation, an Apps Script bridge) was evaluated and rejected — each either requires Google's CASA verification, locks the extension to one Google Workspace domain, or forces the user through a manual technical setup step. Until a solution that works for free, for any Google account, without user gymnastics turns up, picking individual files directly (not whole folders) is the reliable path. Because of this, the Picker no longer lets a folder itself be picked as an item (`setSelectFolderEnabled(false)`) — folders stay browsable to drill into, but adding one whole (e.g. an IDE's "Debug" build folder) only produced a dead, unreadable entry.
-- **Binary formats are read-only.** PDF/DOCX/XLSX/PPTX can be read and searched but not edited; only Google Docs, Google Sheets, and genuinely text-based files (text/JSON/XML/YAML) can be written back.
+- **Folder contents are not actually reachable yet.** A folder can be picked and appears in `list_files`, and `open_folder` is implemented — but Google's `drive.file` scope does not return a folder's children via `files.list` (confirmed empirically: 0 results across every listing strategy tried, even though the folder object itself is granted). Every option that would fix this cleanly (broader `drive.readonly`/`drive` scope, a service account, Workspace-only internal apps, Domain-Wide Delegation, an Apps Script bridge) was evaluated and rejected — each either requires Google's CASA verification, locks the extension to one Google Workspace domain, or forces the user through a manual technical setup step. Until a solution that works for free, for any Google account, without user gymnastics turns up, picking individual files directly (not whole folders) is the reliable path. Because of this, the Picker no longer lets a folder itself be picked as an item (`setSelectFolderEnabled(false)`) — folders stay browsable to drill into, but adding one whole (e.g. an IDE's "Debug" build folder) only produced a dead, unreadable entry. The Picker also has `MULTISELECT_ENABLED` on, so several files can be chosen (ctrl/shift/tap-click) and picked in one go instead of one Picker session per file.
+- **Binary formats are read-only.** PDF/DOCX/XLSX/PPTX can be read and searched but not edited; only Google Docs, Google Sheets, Google Slides (replace-only), and genuinely text-based files (text/JSON/XML/YAML) can be written back.
 - **Per-account quotas.** 200 files and 1 GB per connected Google account; files untouched for 14 days are evicted from the search cache (self-heals on next access, nothing is lost from Drive itself).
 - A shared Google OAuth Client (`google_client_id`/`google_client_secret`), a Picker API key, and an HMAC secret shared with `doc-extractor-service` must be provisioned as app secrets before any user can connect.
 
@@ -170,7 +170,7 @@ edit_document / edit_spreadsheet / write_text_file → native Google API, then b
 ```bash
 python3 -m py_compile main.py app.py handlers_*.py panels.py skeleton.py schemas.py schemas_sdl.py cache_models.py providers/*.py
 
-python3 -m pytest        # 97 tests — providers/* logic, SDK-free fakes in tests/conftest.py
+python3 -m pytest        # 102 tests — providers/* logic, SDK-free fakes in tests/conftest.py
 
 python -m imperal_sdk.cli.main build .      # regenerate imperal.json
 python -m imperal_sdk.cli.main validate .   # check against SDK federal rules

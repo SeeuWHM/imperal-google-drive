@@ -21,11 +21,11 @@ log = logging.getLogger("doc_reader")
 
 ext = Extension(
     "google-drive-connector",
-    version="0.3.5",
+    version="0.4.0",
     display_name="Google Drive Connector",
     description=(
-        "Read and edit Google Docs, Google Sheets, and plain text files, and read "
-        "Google Slides, stored in the user's Google Drive. Nothing is stored on "
+        "Read and edit Google Docs, Google Sheets, and Google Slides, and read/write "
+        "plain text files, stored in the user's Google Drive. Nothing is stored on "
         "Imperal — content is fetched live and written straight back to the source."
     ),
     icon="google-drive-connector.svg",
