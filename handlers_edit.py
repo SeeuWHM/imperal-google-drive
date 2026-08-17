@@ -12,7 +12,7 @@ import logging
 from imperal_sdk.chat.action_result import ActionResult
 
 from app import chat
-from handlers_index import kick_reindex
+from handlers_index import await_reindex
 from providers import edit_ops
 from schemas import (
     AppendRowsParams,
@@ -60,7 +60,7 @@ async def fn_edit_document(ctx, params: EditDocumentParams) -> ActionResult:
             find_text=params.find_text, replace_text=params.replace_text,
             match_case=params.match_case, text=params.text, content=params.content,
         )
-        await kick_reindex(ctx, params.file_id)   # refresh cache in the background
+        await await_reindex(ctx, params.file_id)   # wait so the reply reflects the fresh cache
         occ = out.get("occurrences")
         summary = _OP_SUMMARY.get(out["op"], "Document edited.").format(occ=occ)
         return ActionResult.success(
@@ -81,7 +81,7 @@ async def fn_edit_document(ctx, params: EditDocumentParams) -> ActionResult:
 async def fn_edit_spreadsheet(ctx, params: EditSpreadsheetParams) -> ActionResult:
     try:
         await edit_ops.edit_spreadsheet(ctx, params.file_id, params.cell_range, params.values)
-        await kick_reindex(ctx, params.file_id)   # refresh cache in the background
+        await await_reindex(ctx, params.file_id)   # wait so the reply reflects the fresh cache
         return ActionResult.success(
             data=build_edit_result(params.file_id, op="edit_spreadsheet"),
             summary=f"Range {params.cell_range} updated.", refresh_panels=["doc_files"],
@@ -134,7 +134,7 @@ async def fn_read_spreadsheet_range(ctx, params: ReadSpreadsheetParams) -> Actio
 async def fn_append_spreadsheet_rows(ctx, params: AppendRowsParams) -> ActionResult:
     try:
         n = await edit_ops.append_spreadsheet_rows(ctx, params.file_id, params.rows, params.cell_range)
-        await kick_reindex(ctx, params.file_id)
+        await await_reindex(ctx, params.file_id)
         return ActionResult.success(
             data=build_edit_result(params.file_id, op="append_rows", occurrences_changed=n),
             summary=f"Appended {n} row(s).", refresh_panels=["doc_files"],
@@ -171,7 +171,7 @@ async def fn_spreadsheet_compute(ctx, params: SpreadsheetComputeParams) -> Actio
 async def fn_write_text_file(ctx, params: WriteTextParams) -> ActionResult:
     try:
         await edit_ops.write_text_file(ctx, params.file_id, params.content)
-        await kick_reindex(ctx, params.file_id)   # refresh cache in the background
+        await await_reindex(ctx, params.file_id)   # wait so the reply reflects the fresh cache
         return ActionResult.success(
             data=build_edit_result(params.file_id, op="write_text_file"),
             summary="File saved.", refresh_panels=["doc_files"],

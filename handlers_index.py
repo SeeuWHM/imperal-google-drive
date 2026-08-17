@@ -98,6 +98,30 @@ async def kick_reindex(ctx, file_id: str) -> None:
         log.warning("could not start background re-index: %s", e)
 
 
+async def await_reindex(ctx, file_id: str) -> None:
+    """Re-index ONE file and WAIT for it — used after a single edit instead of
+    kick_reindex's fire-and-forget.
+
+    Found live (2026-08-16): a user edited a Doc, got a success reply, then
+    immediately re-read the file and still saw the OLD text — because
+    kick_reindex only ever *starts* the background re-ingest and returns
+    right away; read_files/search then race it and serve the stale cached
+    text until the background job finishes (no bound on when that happens).
+    For a single edit this is now safe to just await: ingest() polls the
+    engine for at most _INGEST_POLL_MAX_S (90s, well under the 180s write
+    cap), so the reply only comes back once the cache is actually fresh.
+    Best-effort — the live Drive write already succeeded by the time this
+    runs, so a re-index hiccup here must NOT fail the edit; it only means the
+    NEXT read might still need to self-heal (same as before this existed).
+    """
+    try:
+        acc = await _active_account(ctx)
+        rec = await lifecycle.resolve_record(ctx, acc, file_id)
+        await lifecycle.index_record(ctx, acc, rec)
+    except Exception as e:  # noqa: BLE001
+        log.warning("re-index after edit failed (edit itself still succeeded): %s", e)
+
+
 async def kick_bulk_reindex(ctx, file_ids: list[str]) -> None:
     """Fire-and-forget the panel's bulk 'Retry indexing' — see _bulk_reindex_job
     for why this MUST NOT run on the request path."""
