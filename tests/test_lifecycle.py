@@ -118,6 +118,48 @@ async def test_index_record_success(make_ctx, monkeypatch):
     assert ctx.store.rows(FILES_COLLECTION)[0]["status"] == "ready"
 
 
+async def test_index_record_adopts_engine_size_bytes(make_ctx, monkeypatch):
+    """The storage bar (left sidebar GB counter) needs a real byte count. The
+    Picker's own size_bytes is 0 for native Google Docs/Sheets/Slides (Picker
+    API has no flat size for them) — but the engine actually downloaded the
+    file and knows its true size, so index_record must adopt it."""
+    ctx = make_ctx()
+    rec = await _seed_one(ctx)
+
+    async def fake_meta(ctx, acc, file_id):
+        return {"md5Checksum": "abc"}
+
+    async def fake_ingest(ctx, **kw):
+        return {"status": "processed", "document_id": 7, "size_bytes": 54321}
+
+    monkeypatch.setattr(lifecycle, "_drive_meta", fake_meta)
+    monkeypatch.setattr(lifecycle.extractor, "ingest", fake_ingest)
+
+    out = await lifecycle.index_record(ctx, make_acc(), rec)
+    assert out["size_bytes"] == 54321
+    assert ctx.store.rows(FILES_COLLECTION)[0]["size_bytes"] == 54321
+
+
+async def test_index_record_keeps_existing_size_when_engine_reports_zero(make_ctx, monkeypatch):
+    """A missing/zero size from the engine must never CLOBBER a real, already-
+    known size (e.g. a binary file whose Picker size was already accurate)."""
+    ctx = make_ctx()
+    rec = await _seed_one(ctx)
+    await lifecycle.set_fields(ctx, rec, size_bytes=999)
+
+    async def fake_meta(ctx, acc, file_id):
+        return {"md5Checksum": "abc"}
+
+    async def fake_ingest(ctx, **kw):
+        return {"status": "processed", "document_id": 7, "size_bytes": 0}
+
+    monkeypatch.setattr(lifecycle, "_drive_meta", fake_meta)
+    monkeypatch.setattr(lifecycle.extractor, "ingest", fake_ingest)
+
+    out = await lifecycle.index_record(ctx, make_acc(), rec)
+    assert out["size_bytes"] == 999
+
+
 async def test_index_record_unsupported_marks_failed(make_ctx, monkeypatch):
     ctx = make_ctx()
     rec = await _seed_one(ctx)

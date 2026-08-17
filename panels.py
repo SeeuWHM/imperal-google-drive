@@ -192,4 +192,12 @@ async def build_files_panel(ctx, **kwargs) -> ui.UINode:
         ui.Stack(toolbar, direction="h", gap=2),
         ui.Divider(),
         files_block,
+        ui.Alert(
+            message=(
+                "Heads up: Google Drive's standard API doesn't support reading a whole "
+                "folder's contents, so please pick the actual files you want (not just a "
+                "folder) — you can select several at once in the picker."
+            ),
+            type="info",
+        ),
     ], gap=2, className="pb-4")

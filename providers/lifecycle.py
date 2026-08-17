@@ -133,10 +133,20 @@ async def index_record(ctx, acc: dict, rec: dict) -> dict:
         reason = doc.get("error") or f"could not index this file ({doc.get('error_code')})"
         await set_fields(ctx, rec, status=FAILED, error=reason)
         raise RuntimeError(reason)
-    await set_fields(
-        ctx, rec, status=READY, document_id=doc.get("document_id"),
-        content_key=key, error=None, last_access_at=_now(),
-    )
+    # The engine downloads the file itself and knows its REAL byte size
+    # (doc["size_bytes"], computed from the actual bytes it stored) — this is
+    # the only trustworthy source. The Picker's own size_bytes (set at pick
+    # time, before this ever runs) is frequently 0: Google Docs/Sheets/Slides
+    # have no flat byte size in the Picker API at all (SIZE_BYTES comes back
+    # empty for native Google files), so the storage bar could never move for
+    # the most common file types. Overwrite with the engine's real number
+    # once we have it — a stale/absent Picker guess is corrected here.
+    engine_size = doc.get("size_bytes")
+    fields = dict(status=READY, document_id=doc.get("document_id"),
+                  content_key=key, error=None, last_access_at=_now())
+    if isinstance(engine_size, int) and engine_size > 0:
+        fields["size_bytes"] = engine_size
+    await set_fields(ctx, rec, **fields)
     return rec
 
 
