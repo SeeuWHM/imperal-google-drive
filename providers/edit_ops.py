@@ -83,15 +83,15 @@ def _context_snippets(haystack: str, needle: str, match_case: bool, radius: int 
     return out
 
 
-async def _live_document_text(ctx, acc: dict, file_id: str, mime: str) -> str:
+async def _live_document_text(ctx, acc: dict, file_id: str, mime: str, resource_key: str = "") -> str:
     """The CURRENT text of the live Doc/Slides file, straight from the Google
     API — never the (possibly stale) engine cache — so the preflight count in
     edit_document always reflects reality at the moment of the write."""
     if mime == GOOGLE_SLIDE_MIME:
-        resp = await drive_export_text(ctx, acc, file_id, "text/plain")
+        resp = await drive_export_text(ctx, acc, file_id, "text/plain", resource_key)
         resp.raise_for_status()
         return resp.text()
-    doc_resp = await docs_get(ctx, acc, file_id)
+    doc_resp = await docs_get(ctx, acc, file_id, resource_key)
     doc_resp.raise_for_status()
     return walk_document_text(doc_resp.json())
 
@@ -118,11 +118,12 @@ async def edit_document(ctx, file_id: str, op: str, *, find_text: str | None = N
     acc = await _active_account(ctx)
     rec = await lifecycle.resolve_record(ctx, acc, file_id)  # auth + record for re-ingest
     mime = rec.get("mime_type") or ""
+    resource_key = rec.get("resource_key") or ""
 
     if mime == GOOGLE_SLIDE_MIME:
         return await _edit_slides(ctx, acc, file_id, op, find_text=find_text,
                                   replace_text=replace_text, match_case=match_case,
-                                  replace_all=replace_all)
+                                  replace_all=replace_all, resource_key=resource_key)
 
     if mime and mime != GOOGLE_DOC_MIME:
         raise RuntimeError(
@@ -134,7 +135,7 @@ async def edit_document(ctx, file_id: str, op: str, *, find_text: str | None = N
     if op == "replace":
         if not find_text:
             raise ValueError("find_text is required for op=replace")
-        live_text = await _live_document_text(ctx, acc, file_id, GOOGLE_DOC_MIME)
+        live_text = await _live_document_text(ctx, acc, file_id, GOOGLE_DOC_MIME, resource_key)
         pre_count = _count_occurrences(live_text, find_text, match_case)
         if pre_count == 0:
             raise RuntimeError(
@@ -149,7 +150,7 @@ async def edit_document(ctx, file_id: str, op: str, *, find_text: str | None = N
             "containsText": {"text": find_text, "matchCase": match_case},
             "replaceText": replace_text or "",
         }}]
-        resp = await docs_batch_update(ctx, acc, file_id, requests)
+        resp = await docs_batch_update(ctx, acc, file_id, requests, resource_key)
         resp.raise_for_status()
         replies = resp.json().get("replies", [])
         occ = replies[0].get("replaceAllText", {}).get("occurrencesChanged", 0) if replies else 0
@@ -171,12 +172,12 @@ async def edit_document(ctx, file_id: str, op: str, *, find_text: str | None = N
 
     elif op == "append":
         requests = [{"insertText": {"endOfSegmentLocation": {}, "text": text or ""}}]
-        resp = await docs_batch_update(ctx, acc, file_id, requests)
+        resp = await docs_batch_update(ctx, acc, file_id, requests, resource_key)
         resp.raise_for_status()
         result = {"op": "append"}
 
     elif op == "overwrite":
-        doc_resp = await docs_get(ctx, acc, file_id)
+        doc_resp = await docs_get(ctx, acc, file_id, resource_key)
         doc_resp.raise_for_status()
         end_index = document_end_index(doc_resp.json())
         requests = []
@@ -185,7 +186,7 @@ async def edit_document(ctx, file_id: str, op: str, *, find_text: str | None = N
         if content:
             requests.append({"insertText": {"location": {"index": 1}, "text": content}})
         if requests:
-            resp = await docs_batch_update(ctx, acc, file_id, requests)
+            resp = await docs_batch_update(ctx, acc, file_id, requests, resource_key)
             resp.raise_for_status()
         result = {"op": "overwrite"}
 
@@ -197,7 +198,7 @@ async def edit_document(ctx, file_id: str, op: str, *, find_text: str | None = N
 
 async def _edit_slides(ctx, acc: dict, file_id: str, op: str, *, find_text: str | None,
                        replace_text: str | None, match_case: bool,
-                       replace_all: bool = False) -> dict:
+                       replace_all: bool = False, resource_key: str = "") -> dict:
     """Google Slides only supports `replace` (find-and-replace across every
     slide) — the Slides API has no single linear body to append to or
     overwrite the way Docs does (a presentation is a tree of slides/shapes),
@@ -210,7 +211,7 @@ async def _edit_slides(ctx, acc: dict, file_id: str, op: str, *, find_text: str 
         )
     if not find_text:
         raise ValueError("find_text is required for op=replace")
-    live_text = await _live_document_text(ctx, acc, file_id, GOOGLE_SLIDE_MIME)
+    live_text = await _live_document_text(ctx, acc, file_id, GOOGLE_SLIDE_MIME, resource_key)
     pre_count = _count_occurrences(live_text, find_text, match_case)
     if pre_count == 0:
         raise RuntimeError(
@@ -225,7 +226,7 @@ async def _edit_slides(ctx, acc: dict, file_id: str, op: str, *, find_text: str 
         "containsText": {"text": find_text, "matchCase": match_case},
         "replaceText": replace_text or "",
     }}]
-    resp = await slides_batch_update(ctx, acc, file_id, requests)
+    resp = await slides_batch_update(ctx, acc, file_id, requests, resource_key)
     resp.raise_for_status()
     replies = resp.json().get("replies", [])
     occ = replies[0].get("replaceAllText", {}).get("occurrencesChanged", 0) if replies else 0
@@ -250,7 +251,7 @@ async def edit_spreadsheet(ctx, file_id: str, cell_range: str, values: list) -> 
     """Write a 2D array into an A1 range on the live sheet, then re-ingest."""
     acc = await _active_account(ctx)
     rec = await lifecycle.resolve_record(ctx, acc, file_id)
-    resp = await sheets_update_values(ctx, acc, file_id, cell_range, values)
+    resp = await sheets_update_values(ctx, acc, file_id, cell_range, values, rec.get("resource_key") or "")
     resp.raise_for_status()
     return {"updated": True, "range": cell_range}
 
@@ -259,16 +260,16 @@ async def spreadsheet_compute(ctx, file_id: str, cell_range: str, operation: str
     """Exact sum/count/average/min/max over a range, computed in code (not
     estimated from a text dump). Read-only — no re-ingest."""
     acc = await _active_account(ctx)
-    await lifecycle.resolve_record(ctx, acc, file_id)  # auth
-    resp = await sheets_get_values(ctx, acc, file_id, cell_range)
+    rec = await lifecycle.resolve_record(ctx, acc, file_id)  # auth
+    resp = await sheets_get_values(ctx, acc, file_id, cell_range, rec.get("resource_key") or "")
     resp.raise_for_status()
     values = resp.json().get("values", [])
     result, count = compute_aggregate(values, operation)
     return {"operation": operation, "range": cell_range, "result": result, "cell_count": count}
 
 
-async def _first_sheet_name(ctx, acc, file_id: str) -> str:
-    resp = await sheets_get_metadata(ctx, acc, file_id)
+async def _first_sheet_name(ctx, acc, file_id: str, resource_key: str = "") -> str:
+    resp = await sheets_get_metadata(ctx, acc, file_id, resource_key)
     resp.raise_for_status()
     sheets = resp.json().get("sheets", [])
     return sheets[0]["properties"]["title"] if sheets else "Sheet1"
@@ -278,8 +279,8 @@ async def get_spreadsheet_info(ctx, file_id: str) -> list[dict]:
     """Tab names + dimensions — needed before addressing a range by name or
     deciding where to append."""
     acc = await _active_account(ctx)
-    await lifecycle.resolve_record(ctx, acc, file_id)  # auth
-    resp = await sheets_get_metadata(ctx, acc, file_id)
+    rec = await lifecycle.resolve_record(ctx, acc, file_id)  # auth
+    resp = await sheets_get_metadata(ctx, acc, file_id, rec.get("resource_key") or "")
     resp.raise_for_status()
     out = []
     for s in resp.json().get("sheets", []):
@@ -294,8 +295,8 @@ async def get_spreadsheet_info(ctx, file_id: str) -> list[dict]:
 async def read_spreadsheet_range(ctx, file_id: str, cell_range: str) -> list[list]:
     """Raw cell values for an A1 range (structured, not the text dump)."""
     acc = await _active_account(ctx)
-    await lifecycle.resolve_record(ctx, acc, file_id)  # auth
-    resp = await sheets_get_values(ctx, acc, file_id, cell_range)
+    rec = await lifecycle.resolve_record(ctx, acc, file_id)  # auth
+    resp = await sheets_get_values(ctx, acc, file_id, cell_range, rec.get("resource_key") or "")
     resp.raise_for_status()
     return resp.json().get("values", [])
 
@@ -304,9 +305,10 @@ async def append_spreadsheet_rows(ctx, file_id: str, rows: list, cell_range: str
     """Append rows AFTER the existing data — no need to compute the target row.
     Defaults to the first sheet."""
     acc = await _active_account(ctx)
-    await lifecycle.resolve_record(ctx, acc, file_id)  # auth
-    target = cell_range or await _first_sheet_name(ctx, acc, file_id)
-    resp = await sheets_append_values(ctx, acc, file_id, target, rows)
+    rec = await lifecycle.resolve_record(ctx, acc, file_id)  # auth
+    resource_key = rec.get("resource_key") or ""
+    target = cell_range or await _first_sheet_name(ctx, acc, file_id, resource_key)
+    resp = await sheets_append_values(ctx, acc, file_id, target, rows, resource_key)
     resp.raise_for_status()
     return len(rows)
 
@@ -325,6 +327,6 @@ async def write_text_file(ctx, file_id: str, content: str) -> dict:
             f"Cannot overwrite {rec.get('name', file_id)!r} as plain text — its format "
             f"({mime}) is not text-based. Only text/JSON/XML/YAML files are writable."
         )
-    resp = await drive_upload_media(ctx, acc, file_id, content.encode("utf-8"), mime_type=mime)
+    resp = await drive_upload_media(ctx, acc, file_id, content.encode("utf-8"), mime_type=mime, resource_key=rec.get("resource_key") or "")
     resp.raise_for_status()
     return {"saved": True}

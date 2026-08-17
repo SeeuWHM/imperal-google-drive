@@ -104,8 +104,8 @@ async def check_quota(ctx, account_email: str, adding: int = 1, adding_bytes: in
 # ── Indexing (heavy path — background / self-heal) ────────────────────────────
 
 
-async def _drive_meta(ctx, acc: dict, file_id: str) -> dict:
-    resp = await drive_get_metadata(ctx, acc, file_id)
+async def _drive_meta(ctx, acc: dict, file_id: str, resource_key: str = "") -> dict:
+    resp = await drive_get_metadata(ctx, acc, file_id, resource_key)
     resp.raise_for_status()
     return resp.json()
 
@@ -117,14 +117,22 @@ async def index_record(ctx, acc: dict, rec: dict) -> dict:
     acc = await _refresh_token_if_needed(ctx, acc)
     file_id = rec["file_id"]
     mime = rec.get("mime_type") or ""
+    resource_key = rec.get("resource_key") or ""
     await set_fields(ctx, rec, status=INDEXING, error=None)
     try:
-        meta = await _drive_meta(ctx, acc, file_id)
+        meta = await _drive_meta(ctx, acc, file_id, resource_key)
+        # Drive only hands back resourceKey on files that actually need one
+        # (link-shared, not owned/recently-opened) — pick it up here too, in
+        # case the record predates this fix or the Picker missed it.
+        if meta.get("resourceKey") and not resource_key:
+            resource_key = meta["resourceKey"]
+            await set_fields(ctx, rec, resource_key=resource_key)
         key = file_types.content_key(mime, meta)
         url = file_types.build_fetch_url(file_id, mime)
         doc = await extractor.ingest(
             ctx, fetch_url=url, auth=acc["access_token"],
             content_key=key, filename=rec.get("name") or file_id,
+            file_id=file_id, resource_key=resource_key,
         )
     except Exception as e:  # noqa: BLE001 - record the failure, then surface it
         await set_fields(ctx, rec, status=FAILED, error=str(e))
@@ -204,6 +212,7 @@ async def resolve_record(ctx, acc: dict, file_id: str) -> dict:
     created = await ctx.store.create(FILES_COLLECTION, {
         "file_id": file_id, "name": picked.get("name"), "mime_type": picked.get("mime_type"),
         "size_bytes": picked.get("size_bytes", 0), "account_email": _account_email(acc),
+        "resource_key": picked.get("resource_key") or "",
         "status": PENDING, "document_id": None, "last_access_at": _now(),
     })
     rec = dict(created.data)

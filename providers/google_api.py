@@ -7,14 +7,25 @@ from .helpers import DOCS_API, DRIVE_API, DRIVE_UPLOAD_API, SHEETS_API, SLIDES_A
 from .token_refresh import _refresh_token_if_needed
 
 
-def _auth_headers(acc: dict) -> dict:
-    return {"Authorization": f"Bearer {acc['access_token']}"}
+def _auth_headers(acc: dict, file_id: str | None = None, resource_key: str | None = None) -> dict:
+    """Bearer auth, plus X-Goog-Drive-Resource-Keys when a resource_key is
+    known for this file. REQUIRED by Drive (and the Docs/Sheets/Slides APIs,
+    which address the same underlying Drive file) for files shared "by link"
+    rather than owned/recently opened by this account — Drive answers a flat
+    404 ("File not found") instead of the file otherwise, which reads exactly
+    like a missing/deleted file and is easy to misdiagnose. See
+    providers/file_types.py / lifecycle.py for where resource_key is carried
+    from the Picker through to every call that touches the file."""
+    headers = {"Authorization": f"Bearer {acc['access_token']}"}
+    if file_id and resource_key:
+        headers["X-Goog-Drive-Resource-Keys"] = f"{file_id}/{resource_key}"
+    return headers
 
 
 # ── Drive ──────────────────────────────────────────────────────────────────
 
 
-async def drive_get_metadata(ctx, acc: dict, file_id: str):
+async def drive_get_metadata(ctx, acc: dict, file_id: str, resource_key: str = ""):
     """supportsAllDrives=true so a Shared-Drive file's metadata doesn't 404
     (see build_fetch_url's docstring — same Drive API quirk applies here,
     and this call runs BEFORE the download/export step in index_record)."""
@@ -22,10 +33,10 @@ async def drive_get_metadata(ctx, acc: dict, file_id: str):
     return await ctx.http.get(
         f"{DRIVE_API}/files/{file_id}",
         params={
-            "fields": "id,name,mimeType,modifiedTime,size,md5Checksum,headRevisionId",
+            "fields": "id,name,mimeType,modifiedTime,size,md5Checksum,headRevisionId,resourceKey",
             "supportsAllDrives": "true",
         },
-        headers=_auth_headers(acc),
+        headers=_auth_headers(acc, file_id, resource_key),
     )
 
 
@@ -39,7 +50,7 @@ async def drive_list_files(ctx, acc: dict):
     acc = await _refresh_token_if_needed(ctx, acc)
     return await ctx.http.get(
         f"{DRIVE_API}/files",
-        params={"fields": "files(id,name,mimeType,modifiedTime,size)", "pageSize": 200, "q": "trashed=false"},
+        params={"fields": "files(id,name,mimeType,modifiedTime,size,resourceKey)", "pageSize": 200, "q": "trashed=false"},
         headers=_auth_headers(acc),
     )
 
@@ -53,7 +64,7 @@ async def drive_list_folder(ctx, acc: dict, folder_id: str):
         f"{DRIVE_API}/files",
         params={
             "q": f"'{folder_id}' in parents and trashed=false",
-            "fields": "files(id,name,mimeType,modifiedTime,size)",
+            "fields": "files(id,name,mimeType,modifiedTime,size,resourceKey)",
             "pageSize": 200,
             "supportsAllDrives": "true",
             "includeItemsFromAllDrives": "true",
@@ -75,50 +86,50 @@ async def drive_about(ctx, acc: dict):
     )
 
 
-async def drive_download_media(ctx, acc: dict, file_id: str):
+async def drive_download_media(ctx, acc: dict, file_id: str, resource_key: str = ""):
     acc = await _refresh_token_if_needed(ctx, acc)
     return await ctx.http.get(
         f"{DRIVE_API}/files/{file_id}",
-        params={"alt": "media"},
-        headers=_auth_headers(acc),
+        params={"alt": "media", "supportsAllDrives": "true"},
+        headers=_auth_headers(acc, file_id, resource_key),
     )
 
 
-async def drive_upload_media(ctx, acc: dict, file_id: str, content: bytes, mime_type: str = "text/plain"):
+async def drive_upload_media(ctx, acc: dict, file_id: str, content: bytes, mime_type: str = "text/plain", resource_key: str = ""):
     acc = await _refresh_token_if_needed(ctx, acc)
     return await ctx.http.patch(
         f"{DRIVE_UPLOAD_API}/files/{file_id}",
-        params={"uploadType": "media"},
-        headers={**_auth_headers(acc), "Content-Type": mime_type},
+        params={"uploadType": "media", "supportsAllDrives": "true"},
+        headers={**_auth_headers(acc, file_id, resource_key), "Content-Type": mime_type},
         content=content,
     )
 
 
-async def drive_export_text(ctx, acc: dict, file_id: str, mime_type: str = "text/plain"):
+async def drive_export_text(ctx, acc: dict, file_id: str, mime_type: str = "text/plain", resource_key: str = ""):
     """Drive's own format conversion — used for Google Slides, where walking
     the native presentations.get structure (slide -> pageElement -> shape ->
     text -> textRun) would just reimplement what this one call already does."""
     acc = await _refresh_token_if_needed(ctx, acc)
     return await ctx.http.get(
         f"{DRIVE_API}/files/{file_id}/export",
-        params={"mimeType": mime_type},
-        headers=_auth_headers(acc),
+        params={"mimeType": mime_type, "supportsAllDrives": "true"},
+        headers=_auth_headers(acc, file_id, resource_key),
     )
 
 
 # ── Docs ───────────────────────────────────────────────────────────────────
 
 
-async def docs_get(ctx, acc: dict, document_id: str):
+async def docs_get(ctx, acc: dict, document_id: str, resource_key: str = ""):
     acc = await _refresh_token_if_needed(ctx, acc)
-    return await ctx.http.get(f"{DOCS_API}/documents/{document_id}", headers=_auth_headers(acc))
+    return await ctx.http.get(f"{DOCS_API}/documents/{document_id}", headers=_auth_headers(acc, document_id, resource_key))
 
 
-async def docs_batch_update(ctx, acc: dict, document_id: str, requests: list[dict]):
+async def docs_batch_update(ctx, acc: dict, document_id: str, requests: list[dict], resource_key: str = ""):
     acc = await _refresh_token_if_needed(ctx, acc)
     return await ctx.http.post(
         f"{DOCS_API}/documents/{document_id}:batchUpdate",
-        headers=_auth_headers(acc),
+        headers=_auth_headers(acc, document_id, resource_key),
         json={"requests": requests},
     )
 
@@ -146,11 +157,11 @@ def document_end_index(doc_json: dict) -> int:
 # ── Slides ─────────────────────────────────────────────────────────────────
 
 
-async def slides_batch_update(ctx, acc: dict, presentation_id: str, requests: list[dict]):
+async def slides_batch_update(ctx, acc: dict, presentation_id: str, requests: list[dict], resource_key: str = ""):
     acc = await _refresh_token_if_needed(ctx, acc)
     return await ctx.http.post(
         f"{SLIDES_API}/presentations/{presentation_id}:batchUpdate",
-        headers=_auth_headers(acc),
+        headers=_auth_headers(acc, presentation_id, resource_key),
         json={"requests": requests},
     )
 
@@ -158,36 +169,36 @@ async def slides_batch_update(ctx, acc: dict, presentation_id: str, requests: li
 # ── Sheets ───────────────────────────────────────────────────────────────────
 
 
-async def sheets_get_metadata(ctx, acc: dict, spreadsheet_id: str):
+async def sheets_get_metadata(ctx, acc: dict, spreadsheet_id: str, resource_key: str = ""):
     """Sheet names + dimensions — needed before a caller can address a range
     by name (there's no way to guess "Sheet1" is right otherwise)."""
     acc = await _refresh_token_if_needed(ctx, acc)
     return await ctx.http.get(
         f"{SHEETS_API}/spreadsheets/{spreadsheet_id}",
         params={"fields": "properties.title,sheets.properties"},
-        headers=_auth_headers(acc),
+        headers=_auth_headers(acc, spreadsheet_id, resource_key),
     )
 
 
-async def sheets_get_values(ctx, acc: dict, spreadsheet_id: str, cell_range: str):
+async def sheets_get_values(ctx, acc: dict, spreadsheet_id: str, cell_range: str, resource_key: str = ""):
     acc = await _refresh_token_if_needed(ctx, acc)
     return await ctx.http.get(
         f"{SHEETS_API}/spreadsheets/{spreadsheet_id}/values/{cell_range}",
-        headers=_auth_headers(acc),
+        headers=_auth_headers(acc, spreadsheet_id, resource_key),
     )
 
 
-async def sheets_update_values(ctx, acc: dict, spreadsheet_id: str, cell_range: str, values: list[list]):
+async def sheets_update_values(ctx, acc: dict, spreadsheet_id: str, cell_range: str, values: list[list], resource_key: str = ""):
     acc = await _refresh_token_if_needed(ctx, acc)
     return await ctx.http.put(
         f"{SHEETS_API}/spreadsheets/{spreadsheet_id}/values/{cell_range}",
         params={"valueInputOption": "USER_ENTERED"},
-        headers=_auth_headers(acc),
+        headers=_auth_headers(acc, spreadsheet_id, resource_key),
         json={"values": values},
     )
 
 
-async def sheets_append_values(ctx, acc: dict, spreadsheet_id: str, cell_range: str, values: list[list]):
+async def sheets_append_values(ctx, acc: dict, spreadsheet_id: str, cell_range: str, values: list[list], resource_key: str = ""):
     """Append rows AFTER the existing data in a sheet — Sheets finds the table
     and inserts new rows, so the caller doesn't have to compute the target row.
     `cell_range` just names the sheet/table to append into (e.g. a sheet name)."""
@@ -195,6 +206,6 @@ async def sheets_append_values(ctx, acc: dict, spreadsheet_id: str, cell_range: 
     return await ctx.http.post(
         f"{SHEETS_API}/spreadsheets/{spreadsheet_id}/values/{cell_range}:append",
         params={"valueInputOption": "USER_ENTERED", "insertDataOption": "INSERT_ROWS"},
-        headers=_auth_headers(acc),
+        headers=_auth_headers(acc, spreadsheet_id, resource_key),
         json={"values": values},
     )

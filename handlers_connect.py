@@ -140,6 +140,7 @@ async def _claim_pending_picker_session(ctx) -> int:
             "file_id": f.get("file_id"), "name": f.get("name"),
             "mime_type": f.get("mime_type"), "size_bytes": sz,
             "account_email": account_email,
+            "resource_key": f.get("resource_key") or "",
             "status": lifecycle.PENDING, "document_id": None, "last_access_at": time.time(),
         })
         count += 1
@@ -173,6 +174,7 @@ async def impl_register_picked_files(ctx, files: list) -> int:
         await ctx.store.create(FILES_COLLECTION, {
             "file_id": f.file_id, "name": f.name, "mime_type": f.mime_type,
             "size_bytes": sz, "account_email": email,
+            "resource_key": f.resource_key or "",
             "status": lifecycle.PENDING, "document_id": None, "last_access_at": time.time(),
         })
         count += 1

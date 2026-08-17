@@ -155,6 +155,7 @@ async def _find_picked_file(ctx, file_id: str) -> dict:
                     "mime_type": m.get("mimeType"),
                     "size_bytes": int(m.get("size", 0) or 0),
                     "account_email": active_email,
+                    "resource_key": m.get("resourceKey") or "",
                 }
         except Exception:
             pass

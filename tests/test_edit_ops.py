@@ -44,10 +44,10 @@ def _doc_with_text(text: str):
 
 
 async def test_edit_document_replace_counts(patched, make_ctx, monkeypatch):
-    async def fake_get(ctx, acc, file_id):
+    async def fake_get(ctx, acc, file_id, resource_key=""):
         return _doc_with_text("once upon a foo time")   # exactly ONE "foo" — unambiguous
 
-    async def fake_batch(ctx, acc, file_id, requests):
+    async def fake_batch(ctx, acc, file_id, requests, resource_key=""):
         patched["requests"] = requests
         return _ok({"replies": [{"replaceAllText": {"occurrencesChanged": 1}}]})
 
@@ -60,7 +60,7 @@ async def test_edit_document_replace_counts(patched, make_ctx, monkeypatch):
 
 
 async def test_edit_document_replace_zero_raises(patched, make_ctx, monkeypatch):
-    async def fake_get(ctx, acc, file_id):
+    async def fake_get(ctx, acc, file_id, resource_key=""):
         return _doc_with_text("no match in here")
 
     async def boom(*a, **k):
@@ -75,7 +75,7 @@ async def test_edit_document_replace_zero_raises(patched, make_ctx, monkeypatch)
 async def test_edit_document_replace_ambiguous_refuses_without_confirmation(patched, make_ctx, monkeypatch):
     """THE core fix: find_text matching 3 places must refuse to write at all —
     not silently change all 3 — unless replace_all=True is explicitly passed."""
-    async def fake_get(ctx, acc, file_id):
+    async def fake_get(ctx, acc, file_id, resource_key=""):
         return _doc_with_text("Monthly: 5 and also Monthly: 50 and Monthly: 500")
 
     async def boom(*a, **k):
@@ -89,10 +89,10 @@ async def test_edit_document_replace_ambiguous_refuses_without_confirmation(patc
 
 
 async def test_edit_document_replace_all_bypasses_ambiguity_guard(patched, make_ctx, monkeypatch):
-    async def fake_get(ctx, acc, file_id):
+    async def fake_get(ctx, acc, file_id, resource_key=""):
         return _doc_with_text("Monthly: 5 and also Monthly: 5 again")
 
-    async def fake_batch(ctx, acc, file_id, requests):
+    async def fake_batch(ctx, acc, file_id, requests, resource_key=""):
         patched["requests"] = requests
         return _ok({"replies": [{"replaceAllText": {"occurrencesChanged": 2}}]})
 
@@ -105,7 +105,7 @@ async def test_edit_document_replace_all_bypasses_ambiguity_guard(patched, make_
 
 
 async def test_edit_document_append(patched, make_ctx, monkeypatch):
-    async def fake_batch(ctx, acc, file_id, requests):
+    async def fake_batch(ctx, acc, file_id, requests, resource_key=""):
         patched["requests"] = requests
         return _ok({"replies": []})
 
@@ -116,10 +116,10 @@ async def test_edit_document_append(patched, make_ctx, monkeypatch):
 
 
 async def test_edit_document_overwrite_deletes_then_inserts(patched, make_ctx, monkeypatch):
-    async def fake_get(ctx, acc, file_id):
+    async def fake_get(ctx, acc, file_id, resource_key=""):
         return _ok({"body": {"content": [{"endIndex": 50}]}})
 
-    async def fake_batch(ctx, acc, file_id, requests):
+    async def fake_batch(ctx, acc, file_id, requests, resource_key=""):
         patched["requests"] = requests
         return _ok({"replies": []})
 
@@ -176,10 +176,10 @@ class _TextResponse:
 
 
 async def test_edit_slides_replace_counts(patched_slides, make_ctx, monkeypatch):
-    async def fake_export(ctx, acc, file_id, mime_type="text/plain"):
+    async def fake_export(ctx, acc, file_id, mime_type="text/plain", resource_key=""):
         return _TextResponse("once upon a foo time")   # exactly ONE "foo"
 
-    async def fake_batch(ctx, acc, file_id, requests):
+    async def fake_batch(ctx, acc, file_id, requests, resource_key=""):
         patched_slides["requests"] = requests
         return _ok({"replies": [{"replaceAllText": {"occurrencesChanged": 1}}]})
 
@@ -192,7 +192,7 @@ async def test_edit_slides_replace_counts(patched_slides, make_ctx, monkeypatch)
 
 
 async def test_edit_slides_replace_zero_raises(patched_slides, make_ctx, monkeypatch):
-    async def fake_export(ctx, acc, file_id, mime_type="text/plain"):
+    async def fake_export(ctx, acc, file_id, mime_type="text/plain", resource_key=""):
         return _TextResponse("no match in here")
 
     async def boom(*a, **k):
@@ -205,7 +205,7 @@ async def test_edit_slides_replace_zero_raises(patched_slides, make_ctx, monkeyp
 
 
 async def test_edit_slides_replace_ambiguous_refuses_without_confirmation(patched_slides, make_ctx, monkeypatch):
-    async def fake_export(ctx, acc, file_id, mime_type="text/plain"):
+    async def fake_export(ctx, acc, file_id, mime_type="text/plain", resource_key=""):
         return _TextResponse("foo here, foo there, foo everywhere")
 
     async def boom(*a, **k):
@@ -232,7 +232,7 @@ async def test_edit_slides_overwrite_unsupported_raises(patched_slides, make_ctx
 
 
 async def test_edit_spreadsheet_updates(patched, make_ctx, monkeypatch):
-    async def fake_update(ctx, acc, file_id, cell_range, values):
+    async def fake_update(ctx, acc, file_id, cell_range, values, resource_key=""):
         patched["update"] = (cell_range, values)
         return _ok({})
 
@@ -246,7 +246,7 @@ async def test_edit_spreadsheet_updates(patched, make_ctx, monkeypatch):
 
 
 async def test_spreadsheet_compute_exact(patched, make_ctx, monkeypatch):
-    async def fake_get(ctx, acc, file_id, cell_range):
+    async def fake_get(ctx, acc, file_id, cell_range, resource_key=""):
         return _ok({"values": [["1", "2"], ["3"]]})
 
     monkeypatch.setattr(edit_ops, "sheets_get_values", fake_get)
@@ -258,7 +258,7 @@ async def test_spreadsheet_compute_exact(patched, make_ctx, monkeypatch):
 
 
 async def test_get_spreadsheet_info(patched, make_ctx, monkeypatch):
-    async def fake_meta(ctx, acc, file_id):
+    async def fake_meta(ctx, acc, file_id, resource_key=""):
         return _ok({"sheets": [{"properties": {"title": "Companies", "gridProperties": {"rowCount": 100, "columnCount": 8}}}]})
 
     monkeypatch.setattr(edit_ops, "sheets_get_metadata", fake_meta)
@@ -267,7 +267,7 @@ async def test_get_spreadsheet_info(patched, make_ctx, monkeypatch):
 
 
 async def test_read_spreadsheet_range(patched, make_ctx, monkeypatch):
-    async def fake_get(ctx, acc, file_id, cell_range):
+    async def fake_get(ctx, acc, file_id, cell_range, resource_key=""):
         return _ok({"values": [["a", "b"], ["c"]]})
 
     monkeypatch.setattr(edit_ops, "sheets_get_values", fake_get)
@@ -278,10 +278,10 @@ async def test_read_spreadsheet_range(patched, make_ctx, monkeypatch):
 async def test_append_rows_defaults_to_first_sheet(patched, make_ctx, monkeypatch):
     seen = {}
 
-    async def fake_meta(ctx, acc, file_id):
+    async def fake_meta(ctx, acc, file_id, resource_key=""):
         return _ok({"sheets": [{"properties": {"title": "Companies"}}]})
 
-    async def fake_append(ctx, acc, file_id, cell_range, values):
+    async def fake_append(ctx, acc, file_id, cell_range, values, resource_key=""):
         seen["range"] = cell_range
         seen["values"] = values
         return _ok({})
@@ -297,7 +297,7 @@ async def test_append_rows_defaults_to_first_sheet(patched, make_ctx, monkeypatc
 async def test_append_rows_explicit_range_skips_metadata(patched, make_ctx, monkeypatch):
     seen = {}
 
-    async def fake_append(ctx, acc, file_id, cell_range, values):
+    async def fake_append(ctx, acc, file_id, cell_range, values, resource_key=""):
         seen["range"] = cell_range
         return _ok({})
 
@@ -316,7 +316,7 @@ async def test_append_rows_explicit_range_skips_metadata(patched, make_ctx, monk
 async def test_write_text_file_ok(patched, make_ctx, monkeypatch):
     captured = {}
 
-    async def fake_upload(ctx, acc, file_id, content, mime_type="text/plain"):
+    async def fake_upload(ctx, acc, file_id, content, mime_type="text/plain", resource_key=""):
         captured["bytes"] = content
         captured["mime"] = mime_type
         return _ok({})

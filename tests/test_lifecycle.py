@@ -99,10 +99,10 @@ async def test_index_record_success(make_ctx, monkeypatch):
     ctx = make_ctx()
     rec = await _seed_one(ctx)
 
-    async def fake_meta(ctx, acc, file_id):
+    async def fake_meta(ctx, acc, file_id, resource_key=""):
         return {"md5Checksum": "abc"}
 
-    async def fake_ingest(ctx, *, fetch_url, auth, content_key, filename):
+    async def fake_ingest(ctx, *, fetch_url, auth, content_key, filename, file_id="", resource_key=""):
         assert content_key == "abc"  # binary → md5
         assert "/files/F1?alt=media" in fetch_url and "supportsAllDrives=true" in fetch_url
         assert auth == "tok"
@@ -126,7 +126,7 @@ async def test_index_record_adopts_engine_size_bytes(make_ctx, monkeypatch):
     ctx = make_ctx()
     rec = await _seed_one(ctx)
 
-    async def fake_meta(ctx, acc, file_id):
+    async def fake_meta(ctx, acc, file_id, resource_key=""):
         return {"md5Checksum": "abc"}
 
     async def fake_ingest(ctx, **kw):
@@ -147,7 +147,7 @@ async def test_index_record_keeps_existing_size_when_engine_reports_zero(make_ct
     rec = await _seed_one(ctx)
     await lifecycle.set_fields(ctx, rec, size_bytes=999)
 
-    async def fake_meta(ctx, acc, file_id):
+    async def fake_meta(ctx, acc, file_id, resource_key=""):
         return {"md5Checksum": "abc"}
 
     async def fake_ingest(ctx, **kw):
@@ -164,7 +164,7 @@ async def test_index_record_unsupported_marks_failed(make_ctx, monkeypatch):
     ctx = make_ctx()
     rec = await _seed_one(ctx)
 
-    async def fake_meta(ctx, acc, file_id):
+    async def fake_meta(ctx, acc, file_id, resource_key=""):
         return {"md5Checksum": "abc"}
 
     async def fake_ingest(ctx, **kw):
@@ -183,7 +183,7 @@ async def test_index_record_ingest_error_marks_failed(make_ctx, monkeypatch):
     ctx = make_ctx()
     rec = await _seed_one(ctx)
 
-    async def fake_meta(ctx, acc, file_id):
+    async def fake_meta(ctx, acc, file_id, resource_key=""):
         return {"md5Checksum": "abc"}
 
     async def fake_ingest(ctx, **kw):

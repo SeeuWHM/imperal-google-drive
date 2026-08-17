@@ -118,7 +118,8 @@ _INGEST_POLL_INTERVAL_S = 2.0
 _INGEST_POLL_MAX_S = 90.0
 
 
-async def ingest(ctx, *, fetch_url: str, auth: str, content_key: str, filename: str) -> dict:
+async def ingest(ctx, *, fetch_url: str, auth: str, content_key: str, filename: str,
+                  file_id: str = "", resource_key: str = "") -> dict:
     """Hand the engine a Drive URL (media URL for binaries, export URL for
     Google-native) + a transient bearer token (the caller's own Drive OAuth
     access token) so the ENGINE downloads it itself, over /v1/documents/from-url.
@@ -155,6 +156,8 @@ async def ingest(ctx, *, fetch_url: str, auth: str, content_key: str, filename: 
         "url": fetch_url,
         "auth": auth,
         "filename": filename,
+        "file_id": file_id,
+        "resource_key": resource_key,
     }, timeout=120)
     resp.raise_for_status()
     docs = ((resp.json() or {}).get("data") or {}).get("documents") or []

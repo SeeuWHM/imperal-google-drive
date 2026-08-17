@@ -115,6 +115,7 @@ class PickedFileInput(BaseModel):
     name: str
     mime_type: str
     size_bytes: int = 0
+    resource_key: str = ""
 
 
 class RegisterPickedFilesParams(BaseModel):
