@@ -47,10 +47,12 @@ _OP_SUMMARY = {
     "edit_document", action_type="write", event="file.edited", data_model=EditResult,
     description=(
         "Edit a Google Doc OR Google Slides presentation (auto-detected from the file's type): "
-        "op=replace (exact find-and-replace across the whole doc/every slide — fails if find_text has "
-        "no match), op=append (Docs only — add text to the end), or op=overwrite (Docs only — replace "
-        "the whole document). Slides supports replace only (no single body to append to/overwrite). "
-        "Changes the live document immediately."
+        "op=replace (exact find-and-replace — fails if find_text has no match; ALSO fails if "
+        "find_text matches more than once in the live document, since a wider match than intended "
+        "silently corrupts unrelated text — pass replace_all=true only when every occurrence really "
+        "should change), op=append (Docs only — add text to the end), or op=overwrite (Docs only — "
+        "replace the whole document). Slides supports replace only (no single body to append to/"
+        "overwrite). Changes the live document immediately."
     ),
 )
 async def fn_edit_document(ctx, params: EditDocumentParams) -> ActionResult:
@@ -59,6 +61,7 @@ async def fn_edit_document(ctx, params: EditDocumentParams) -> ActionResult:
             ctx, params.file_id, params.op,
             find_text=params.find_text, replace_text=params.replace_text,
             match_case=params.match_case, text=params.text, content=params.content,
+            replace_all=params.replace_all,
         )
         await await_reindex(ctx, params.file_id)   # wait so the reply reflects the fresh cache
         occ = out.get("occurrences")
@@ -67,6 +70,11 @@ async def fn_edit_document(ctx, params: EditDocumentParams) -> ActionResult:
             data=build_edit_result(params.file_id, op=out["op"], occurrences_changed=occ),
             summary=summary, refresh_panels=["doc_files"],
         )
+    except edit_ops.AmbiguousReplaceError as e:
+        # Nothing was written — the live doc is untouched. Surface as retryable:
+        # the caller just needs a more specific find_text, or an explicit
+        # replace_all=true if the wide change really is intended.
+        return ActionResult.error(str(e), retryable=True)
     except Exception as e:
         return ActionResult.error(str(e), retryable=False)
 

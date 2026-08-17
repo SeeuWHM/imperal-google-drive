@@ -38,25 +38,70 @@ def _ok(json_data):
 # ── edit_document ─────────────────────────────────────────────────────────────
 
 
+def _doc_with_text(text: str):
+    """A Docs API document body whose flattened text is exactly `text`."""
+    return _ok({"body": {"content": [{"paragraph": {"elements": [{"textRun": {"content": text}}]}}]}})
+
+
 async def test_edit_document_replace_counts(patched, make_ctx, monkeypatch):
+    async def fake_get(ctx, acc, file_id):
+        return _doc_with_text("once upon a foo time")   # exactly ONE "foo" — unambiguous
+
     async def fake_batch(ctx, acc, file_id, requests):
         patched["requests"] = requests
-        return _ok({"replies": [{"replaceAllText": {"occurrencesChanged": 3}}]})
+        return _ok({"replies": [{"replaceAllText": {"occurrencesChanged": 1}}]})
 
+    monkeypatch.setattr(edit_ops, "docs_get", fake_get)
     monkeypatch.setattr(edit_ops, "docs_batch_update", fake_batch)
     out = await edit_ops.edit_document(make_ctx(), "F1", "replace", find_text="foo", replace_text="bar")
-    assert out == {"op": "replace", "occurrences": 3}
+    assert out == {"op": "replace", "occurrences": 1}
     r = patched["requests"][0]["replaceAllText"]
     assert r["containsText"]["text"] == "foo" and r["replaceText"] == "bar"
 
 
 async def test_edit_document_replace_zero_raises(patched, make_ctx, monkeypatch):
-    async def fake_batch(ctx, acc, file_id, requests):
-        return _ok({"replies": [{"replaceAllText": {"occurrencesChanged": 0}}]})
+    async def fake_get(ctx, acc, file_id):
+        return _doc_with_text("no match in here")
 
-    monkeypatch.setattr(edit_ops, "docs_batch_update", fake_batch)
+    async def boom(*a, **k):
+        raise AssertionError("must not call the write API when the preflight found 0 matches")
+
+    monkeypatch.setattr(edit_ops, "docs_get", fake_get)
+    monkeypatch.setattr(edit_ops, "docs_batch_update", boom)
     with pytest.raises(RuntimeError):
         await edit_ops.edit_document(make_ctx(), "F1", "replace", find_text="x", replace_text="y")
+
+
+async def test_edit_document_replace_ambiguous_refuses_without_confirmation(patched, make_ctx, monkeypatch):
+    """THE core fix: find_text matching 3 places must refuse to write at all —
+    not silently change all 3 — unless replace_all=True is explicitly passed."""
+    async def fake_get(ctx, acc, file_id):
+        return _doc_with_text("Monthly: 5 and also Monthly: 50 and Monthly: 500")
+
+    async def boom(*a, **k):
+        raise AssertionError("must NOT write when find_text is ambiguous and replace_all wasn't set")
+
+    monkeypatch.setattr(edit_ops, "docs_get", fake_get)
+    monkeypatch.setattr(edit_ops, "docs_batch_update", boom)
+    with pytest.raises(edit_ops.AmbiguousReplaceError) as exc_info:
+        await edit_ops.edit_document(make_ctx(), "F1", "replace", find_text="Monthly: 5", replace_text="X")
+    assert exc_info.value.count == 3
+
+
+async def test_edit_document_replace_all_bypasses_ambiguity_guard(patched, make_ctx, monkeypatch):
+    async def fake_get(ctx, acc, file_id):
+        return _doc_with_text("Monthly: 5 and also Monthly: 5 again")
+
+    async def fake_batch(ctx, acc, file_id, requests):
+        patched["requests"] = requests
+        return _ok({"replies": [{"replaceAllText": {"occurrencesChanged": 2}}]})
+
+    monkeypatch.setattr(edit_ops, "docs_get", fake_get)
+    monkeypatch.setattr(edit_ops, "docs_batch_update", fake_batch)
+    out = await edit_ops.edit_document(
+        make_ctx(), "F1", "replace", find_text="Monthly: 5", replace_text="X", replace_all=True,
+    )
+    assert out == {"op": "replace", "occurrences": 2}
 
 
 async def test_edit_document_append(patched, make_ctx, monkeypatch):
@@ -119,25 +164,58 @@ def patched_slides(monkeypatch):
     return state
 
 
+class _TextResponse:
+    """drive_export_text returns a response whose .text() is the export body
+    (not JSON) — a distinct fake from FakeResponse's .json()-oriented shape."""
+    def __init__(self, text):
+        self._text = text
+    def raise_for_status(self):
+        pass
+    def text(self):
+        return self._text
+
+
 async def test_edit_slides_replace_counts(patched_slides, make_ctx, monkeypatch):
+    async def fake_export(ctx, acc, file_id, mime_type="text/plain"):
+        return _TextResponse("once upon a foo time")   # exactly ONE "foo"
+
     async def fake_batch(ctx, acc, file_id, requests):
         patched_slides["requests"] = requests
-        return _ok({"replies": [{"replaceAllText": {"occurrencesChanged": 2}}]})
+        return _ok({"replies": [{"replaceAllText": {"occurrencesChanged": 1}}]})
 
+    monkeypatch.setattr(edit_ops, "drive_export_text", fake_export)
     monkeypatch.setattr(edit_ops, "slides_batch_update", fake_batch)
     out = await edit_ops.edit_document(make_ctx(), "P1", "replace", find_text="foo", replace_text="bar")
-    assert out == {"op": "replace", "occurrences": 2}
+    assert out == {"op": "replace", "occurrences": 1}
     r = patched_slides["requests"][0]["replaceAllText"]
     assert r["containsText"]["text"] == "foo" and r["replaceText"] == "bar"
 
 
 async def test_edit_slides_replace_zero_raises(patched_slides, make_ctx, monkeypatch):
-    async def fake_batch(ctx, acc, file_id, requests):
-        return _ok({"replies": [{"replaceAllText": {"occurrencesChanged": 0}}]})
+    async def fake_export(ctx, acc, file_id, mime_type="text/plain"):
+        return _TextResponse("no match in here")
 
-    monkeypatch.setattr(edit_ops, "slides_batch_update", fake_batch)
+    async def boom(*a, **k):
+        raise AssertionError("must not call the write API when the preflight found 0 matches")
+
+    monkeypatch.setattr(edit_ops, "drive_export_text", fake_export)
+    monkeypatch.setattr(edit_ops, "slides_batch_update", boom)
     with pytest.raises(RuntimeError):
         await edit_ops.edit_document(make_ctx(), "P1", "replace", find_text="x", replace_text="y")
+
+
+async def test_edit_slides_replace_ambiguous_refuses_without_confirmation(patched_slides, make_ctx, monkeypatch):
+    async def fake_export(ctx, acc, file_id, mime_type="text/plain"):
+        return _TextResponse("foo here, foo there, foo everywhere")
+
+    async def boom(*a, **k):
+        raise AssertionError("must NOT write when find_text is ambiguous and replace_all wasn't set")
+
+    monkeypatch.setattr(edit_ops, "drive_export_text", fake_export)
+    monkeypatch.setattr(edit_ops, "slides_batch_update", boom)
+    with pytest.raises(edit_ops.AmbiguousReplaceError) as exc_info:
+        await edit_ops.edit_document(make_ctx(), "P1", "replace", find_text="foo", replace_text="bar")
+    assert exc_info.value.count == 3
 
 
 async def test_edit_slides_append_unsupported_raises(patched_slides, make_ctx):

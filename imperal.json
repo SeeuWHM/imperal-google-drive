@@ -2174,6 +2174,18 @@
                 ],
                 "default": null,
                 "title": "Size Bytes"
+              },
+              "error": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Error"
               }
             },
             "required": [
@@ -2459,7 +2471,7 @@
     },
     {
       "name": "edit_document",
-      "description": "Edit a Google Doc: op=replace (exact find-and-replace — fails if find_text has no match), op=append (add text to the end), or op=overwrite (replace the whole document). Changes the live document immediately.",
+      "description": "Edit a Google Doc OR Google Slides presentation (auto-detected from the file's type): op=replace (exact find-and-replace — fails if find_text has no match; ALSO fails if find_text matches more than once in the live document, since a wider match than intended silently corrupts unrelated text — pass replace_all=true only when every occurrence really should change), op=append (Docs only — add text to the end), or op=overwrite (Docs only — replace the whole document). Slides supports replace only (no single body to append to/overwrite). Changes the live document immediately.",
       "action_type": "write",
       "chain_callable": true,
       "effects": [],
@@ -2467,7 +2479,7 @@
       "params_schema": {
         "properties": {
           "file_id": {
-            "description": "Google Doc file ID.",
+            "description": "Google Doc or Google Slides file ID.",
             "title": "File Id",
             "type": "string"
           },
@@ -2511,6 +2523,12 @@
             "default": false,
             "description": "For op=replace: require exact case match.",
             "title": "Match Case",
+            "type": "boolean"
+          },
+          "replace_all": {
+            "default": false,
+            "description": "For op=replace: find_text is checked against the LIVE document first — if it matches more than once, the edit is refused (nothing changed) UNLESS this is true, since a wider match than intended silently corrupts unrelated text. Only set this when you deliberately want every occurrence changed.",
+            "title": "Replace All",
             "type": "boolean"
           },
           "text": {

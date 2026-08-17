@@ -74,6 +74,7 @@ class EditDocumentParams(BaseModel):
     find_text: str | None = Field(default=None, description="For op=replace: exact text to find.")
     replace_text: str | None = Field(default=None, description="For op=replace: text to replace it with.")
     match_case: bool = Field(default=False, description="For op=replace: require exact case match.")
+    replace_all: bool = Field(default=False, description="For op=replace: find_text is checked against the LIVE document first — if it matches more than once, the edit is refused (nothing changed) UNLESS this is true, since a wider match than intended silently corrupts unrelated text. Only set this when you deliberately want every occurrence changed.")
     text: str | None = Field(default=None, description="For op=append: text to add at the end.")
     content: str | None = Field(default=None, description="For op=overwrite: the new full document content.")
 

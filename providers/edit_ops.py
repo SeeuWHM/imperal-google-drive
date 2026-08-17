@@ -16,12 +16,14 @@ from .google_api import (
     docs_batch_update,
     docs_get,
     document_end_index,
+    drive_export_text,
     drive_upload_media,
     sheets_append_values,
     sheets_get_metadata,
     sheets_get_values,
     sheets_update_values,
     slides_batch_update,
+    walk_document_text,
 )
 from .helpers import GOOGLE_DOC_MIME, GOOGLE_SLIDE_MIME, _active_account
 from .spreadsheet_math import compute_aggregate
@@ -36,9 +38,69 @@ def _is_writable_text(mime: str) -> bool:
     return mime.startswith(_WRITABLE_PREFIXES) or mime in _WRITABLE_EXACT
 
 
-# NOTE: writes DO NOT re-index synchronously (that blocked the write and timed
-# out). The edit returns immediately; the SDK handler fires a BACKGROUND
-# re-index (handlers_index.kick_reindex) so read_file/search stay fresh.
+class AmbiguousReplaceError(RuntimeError):
+    """Raised when find_text matches more than once and the caller did not
+    explicitly pass replace_all=True. Carries the real count + short context
+    snippets so the caller can either narrow find_text or confirm the bulk
+    replace on purpose — never both silently."""
+    def __init__(self, find_text: str, count: int, snippets: list[str]):
+        self.find_text = find_text
+        self.count = count
+        self.snippets = snippets
+        shown = "; ".join(f"…{s}…" for s in snippets[:5])
+        more = f" (+{count - 5} more)" if count > 5 else ""
+        super().__init__(
+            f"{find_text!r} matches {count} places in this document, not 1 — "
+            f"replacing it would change all {count} at once, which is very likely "
+            f"NOT what was intended: {shown}{more}. Either make find_text more "
+            "specific (include surrounding words so it's unique), or pass "
+            "replace_all=true if you really do mean to change every occurrence."
+        )
+
+
+def _count_occurrences(haystack: str, needle: str, match_case: bool) -> int:
+    if not needle:
+        return 0
+    if match_case:
+        return haystack.count(needle)
+    return haystack.lower().count(needle.lower())
+
+
+def _context_snippets(haystack: str, needle: str, match_case: bool, radius: int = 24) -> list[str]:
+    """Short 'before…match…after' windows around each hit — lets the caller
+    (and the user, in the error message) SEE why a find_text was ambiguous
+    without re-reading the whole file."""
+    hay = haystack if match_case else haystack.lower()
+    ndl = needle if match_case else needle.lower()
+    out, start = [], 0
+    while True:
+        i = hay.find(ndl, start)
+        if i == -1:
+            break
+        lo, hi = max(0, i - radius), min(len(haystack), i + len(needle) + radius)
+        out.append(haystack[lo:hi].replace("\n", " "))
+        start = i + len(needle)
+    return out
+
+
+async def _live_document_text(ctx, acc: dict, file_id: str, mime: str) -> str:
+    """The CURRENT text of the live Doc/Slides file, straight from the Google
+    API — never the (possibly stale) engine cache — so the preflight count in
+    edit_document always reflects reality at the moment of the write."""
+    if mime == GOOGLE_SLIDE_MIME:
+        resp = await drive_export_text(ctx, acc, file_id, "text/plain")
+        resp.raise_for_status()
+        return resp.text()
+    doc_resp = await docs_get(ctx, acc, file_id)
+    doc_resp.raise_for_status()
+    return walk_document_text(doc_resp.json())
+
+
+# NOTE: edit_ops itself never re-indexes — that lives one layer up, in the SDK
+# handlers (handlers_index.py). Single-file edits AWAIT it (await_reindex) so
+# the reply only comes back once the cache is fresh; multi-file bulk paths
+# still fire it in the BACKGROUND (kick_reindex/kick_bulk_reindex) so a large
+# batch can't hang the panel. See handlers_index.py's docstrings for why.
 
 
 # ── Google Docs / Slides ───────────────────────────────────────────────────────
@@ -46,17 +108,21 @@ def _is_writable_text(mime: str) -> bool:
 
 async def edit_document(ctx, file_id: str, op: str, *, find_text: str | None = None,
                         replace_text: str | None = None, match_case: bool = False,
-                        text: str | None = None, content: str | None = None) -> dict:
+                        text: str | None = None, content: str | None = None,
+                        replace_all: bool = False) -> dict:
     """op = replace | append | overwrite. Changes the live Google Doc or Google
     Slides presentation (routed by the picked file's mime type), then
-    re-ingests. `replace` raises if find_text has no match (nothing changed)."""
+    re-ingests. `replace` raises if find_text has no match (nothing changed),
+    and ALSO raises (AmbiguousReplaceError) if it matches more than once
+    UNLESS replace_all=True — see module docstring for why."""
     acc = await _active_account(ctx)
     rec = await lifecycle.resolve_record(ctx, acc, file_id)  # auth + record for re-ingest
     mime = rec.get("mime_type") or ""
 
     if mime == GOOGLE_SLIDE_MIME:
         return await _edit_slides(ctx, acc, file_id, op, find_text=find_text,
-                                  replace_text=replace_text, match_case=match_case)
+                                  replace_text=replace_text, match_case=match_case,
+                                  replace_all=replace_all)
 
     if mime and mime != GOOGLE_DOC_MIME:
         raise RuntimeError(
@@ -66,6 +132,19 @@ async def edit_document(ctx, file_id: str, op: str, *, find_text: str | None = N
         )
 
     if op == "replace":
+        if not find_text:
+            raise ValueError("find_text is required for op=replace")
+        live_text = await _live_document_text(ctx, acc, file_id, GOOGLE_DOC_MIME)
+        pre_count = _count_occurrences(live_text, find_text, match_case)
+        if pre_count == 0:
+            raise RuntimeError(
+                f"No occurrences of {find_text!r} found — nothing was changed. "
+                "Check the exact wording with read_file first."
+            )
+        if pre_count > 1 and not replace_all:
+            raise AmbiguousReplaceError(
+                find_text, pre_count, _context_snippets(live_text, find_text, match_case),
+            )
         requests = [{"replaceAllText": {
             "containsText": {"text": find_text, "matchCase": match_case},
             "replaceText": replace_text or "",
@@ -78,6 +157,15 @@ async def edit_document(ctx, file_id: str, op: str, *, find_text: str | None = N
             raise RuntimeError(
                 f"No occurrences of {find_text!r} found — nothing was changed. "
                 "Check the exact wording with read_file first."
+            )
+        if occ != pre_count:
+            # The live document moved between our preflight read and the write
+            # itself (a genuine race, e.g. a concurrent edit) — occurrencesChanged
+            # is the actual authority, but this must never be silently swallowed.
+            log.warning(
+                "edit_document replace: preflight counted %d occurrence(s) of %r but "
+                "Google reported %d changed (file %s) — live doc changed mid-request",
+                pre_count, find_text, occ, file_id,
             )
         result = {"op": "replace", "occurrences": occ}
 
@@ -108,7 +196,8 @@ async def edit_document(ctx, file_id: str, op: str, *, find_text: str | None = N
 
 
 async def _edit_slides(ctx, acc: dict, file_id: str, op: str, *, find_text: str | None,
-                       replace_text: str | None, match_case: bool) -> dict:
+                       replace_text: str | None, match_case: bool,
+                       replace_all: bool = False) -> dict:
     """Google Slides only supports `replace` (find-and-replace across every
     slide) — the Slides API has no single linear body to append to or
     overwrite the way Docs does (a presentation is a tree of slides/shapes),
@@ -118,6 +207,19 @@ async def _edit_slides(ctx, acc: dict, file_id: str, op: str, *, find_text: str 
             f"Google Slides only supports op='replace' (find-and-replace across every slide) — "
             f"'{op}' has no equivalent for a presentation (no single body to append to or "
             "overwrite). Edit slide text with find_text/replace_text instead."
+        )
+    if not find_text:
+        raise ValueError("find_text is required for op=replace")
+    live_text = await _live_document_text(ctx, acc, file_id, GOOGLE_SLIDE_MIME)
+    pre_count = _count_occurrences(live_text, find_text, match_case)
+    if pre_count == 0:
+        raise RuntimeError(
+            f"No occurrences of {find_text!r} found on any slide — nothing was changed. "
+            "Check the exact wording with read_file first."
+        )
+    if pre_count > 1 and not replace_all:
+        raise AmbiguousReplaceError(
+            find_text, pre_count, _context_snippets(live_text, find_text, match_case),
         )
     requests = [{"replaceAllText": {
         "containsText": {"text": find_text, "matchCase": match_case},
@@ -131,6 +233,12 @@ async def _edit_slides(ctx, acc: dict, file_id: str, op: str, *, find_text: str 
         raise RuntimeError(
             f"No occurrences of {find_text!r} found on any slide — nothing was changed. "
             "Check the exact wording with read_file first."
+        )
+    if occ != pre_count:
+        log.warning(
+            "edit_document replace (slides): preflight counted %d occurrence(s) of %r but "
+            "Google reported %d changed (file %s) — live deck changed mid-request",
+            pre_count, find_text, occ, file_id,
         )
     return {"op": "replace", "occurrences": occ}
 
