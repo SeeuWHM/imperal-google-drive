@@ -47,7 +47,7 @@ async def build_overview_panel(ctx, **kwargs) -> ui.UINode:
     accounts = await _all_accounts(ctx)
     if not accounts:
         return ui.Stack([
-            ui.Header(text="Google Drive", level=3),
+            ui.Header(text="Google Drive", level=3, subtitle="وليد جمعه"),
             ui.Empty(message="Connect a Google account to get started", icon="HardDrive"),
             ui.Button("Connect Google account", icon="Plus", variant="primary",
                       on_click=ui.Call("connect_google_docs")),
@@ -63,14 +63,14 @@ async def build_overview_panel(ctx, **kwargs) -> ui.UINode:
     except Exception as exc:  # noqa: BLE001
         log.error(f"doc_overview panel error: {exc}")
         return ui.Stack([
-            ui.Header(text="Google Drive", level=3),
+            ui.Header(text="Google Drive", level=3, subtitle="وليد جمعه"),
             ui.Alert(message=f"Error loading panel: {exc}", type="error"),
         ], gap=2)
 
     gb_used = total_bytes / (1024 ** 3)
 
     return ui.Stack([
-        ui.Header(text="Google Drive", level=3, subtitle="Connected accounts & storage"),
+        ui.Header(text="Google Drive", level=3, subtitle="Connected accounts & storage · وليد جمعه"),
         ui.Stats([
             ui.Stat(label="Accounts", value=len(rows), icon="Users", color="blue"),
             ui.Stat(label="Files", value=total_files, icon="FileText", color="purple"),

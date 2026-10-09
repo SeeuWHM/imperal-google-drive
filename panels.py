@@ -118,7 +118,7 @@ async def build_files_panel(ctx, **kwargs) -> ui.UINode:
     accounts = await _all_accounts(ctx)
     if not accounts:
         return ui.Stack([
-            ui.Header(text="Google Drive", level=3),
+            ui.Header(text="Google Drive", level=3, subtitle="وليد جمعه"),
             ui.Empty(message="No Google account connected", icon="FileText"),
             ui.Button("Connect Google account", icon="Plus", variant="primary",
                       on_click=ui.Call("connect_google_docs")),
@@ -135,7 +135,7 @@ async def build_files_panel(ctx, **kwargs) -> ui.UINode:
     except Exception as exc:
         log.error(f"doc_files panel error: {exc}")
         return ui.Stack([
-            ui.Header(text="Google Drive", level=3),
+            ui.Header(text="Google Drive", level=3, subtitle="وليد جمعه"),
             ui.Alert(message=f"Error loading panel: {exc}", type="error"),
         ], gap=2)
 
@@ -187,7 +187,7 @@ async def build_files_panel(ctx, **kwargs) -> ui.UINode:
         ))
 
     return ui.Stack([
-        ui.Header(text=f"Files — {active_email}", level=3),
+        ui.Header(text=f"Files — {active_email}", level=3, subtitle="وليد جمعه"),
         _storage_bar(doc_count, total_bytes),
         ui.Stack(toolbar, direction="h", gap=2),
         ui.Divider(),
